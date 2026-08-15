@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>血糖回診報告 {{ m.start.strftime('%Y-%m-%d') }} ~ {{ m.end.strftime('%Y-%m-%d') }}</title>
+<style>
+  /* 中文字型依序退回：桌機常見的思源／蘋方／微軟正黑，Pi 上則落在文泉驛 */
+  :root {
+    --surface: #fcfcfb; --plane: #f9f9f7;
+    --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7;
+    --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  }
+  @page { size: A4; margin: 11mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--plane); color: var(--ink);
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei",
+                 "WenQuanYi Zen Hei", system-ui, sans-serif;
+    font-size: 12px; line-height: 1.5; text-wrap: pretty;
+  }
+  a, a:hover { color: var(--ink2); }
+  .page {
+    width: 188mm; min-height: 275mm; margin: 0 auto 8mm; padding: 0 0 6mm;
+    background: var(--surface);
+  }
+  /* 餐食頁的卡片數會隨飲食紀錄增加，本來就該自然跨頁；固定成一頁反而會擠爆。
+     只要求卡片本身不被切斷，區段標題不落在頁尾。 */
+  .page.flow { min-height: 0; }
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; width: auto; min-height: 0; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    .card { page-break-inside: avoid; break-inside: avoid; }
+    h2, h3 { page-break-after: avoid; break-after: avoid; }
+  }
+
+  h1 { font-size: 17px; margin: 0; letter-spacing: -0.2px; }
+  h2 { font-size: 13px; margin: 0 0 6px; letter-spacing: 0.02em; }
+  h3 { font-size: 11px; margin: 0 0 4px; color: var(--ink2); font-weight: 600; }
+  .sub { color: var(--ink2); font-size: 11px; }
+  .muted { color: var(--muted); }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 16px; padding-bottom: 8px; border-bottom: 1.5px solid var(--ink);
+    margin-bottom: 12px;
+  }
+  section { margin-bottom: 14px; }
+  .rule { border-top: 1px solid var(--grid); padding-top: 10px; }
+
+  .cols { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 14px; }
+  .stat { border-top: 2px solid var(--ink); padding-top: 5px; }
+  .stat .k { font-size: 10px; color: var(--ink2); }
+  .stat .v { font-size: 22px; font-weight: 600; line-height: 1.15; }
+  .stat .g { font-size: 9.5px; color: var(--muted); }
+  .hit { color: var(--good); font-weight: 600; }
+  .miss { color: var(--crit); font-weight: 600; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 10.5px; }
+  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--ink2); font-weight: 600; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 5px;
+            vertical-align: -1px; }
+
+  .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid var(--grid); padding: 8px 9px; background: #fff; }
+  .card .when { font-size: 10px; color: var(--muted); }
+  .card .name { font-size: 11.5px; font-weight: 600; margin: 1px 0 4px;
+                overflow-wrap: anywhere; }
+  .macros { display: flex; gap: 8px; font-size: 10px; color: var(--ink2);
+            margin-bottom: 4px; }
+  .macros b { font-weight: 600; color: var(--ink); }
+  .verdict { font-size: 10.5px; margin-top: 4px; }
+  .thin { border-left: 3px solid var(--warn); padding-left: 7px;
+          font-size: 10.5px; color: var(--ink2); }
+
+  footer { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--grid);
+           font-size: 9.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+{# ── P1 醫師版 AGP：完全遵循國際共識版面，讓醫師秒讀 ───────────────── #}
+<div class="page">
+  <header>
+    <div>
+      <h1>血糖回診報告 · AGP</h1>
+      <div class="sub">{{ patient }}</div>
+    </div>
+    <div class="sub tnum" style="text-align:right">
+      {{ m.start.strftime('%Y-%m-%d') }} – {{ m.end.strftime('%Y-%m-%d') }}（{{ m.days }} 天）<br>
+      感測器涵蓋率 {{ '%.0f'|format(m.coverage_pct) }}%・{{ m.readings }} 筆讀數
+    </div>
+  </header>
+
+  <section class="cols">
+    <div>
+      <h2>血糖統計</h2>
+      <div class="stats">
+        <div class="stat">
+          <div class="k">平均葡萄糖</div>
+          <div class="v tnum">{{ '%.0f'|format(m.mean) }}<span style="font-size:11px"> mg/dL</span></div>
+        </div>
+        <div class="stat">
+          <div class="k">葡萄糖管理指標 GMI</div>
+          <div class="v tnum">{{ '%.1f'|format(m.gmi_pct) }}%</div>
+          <div class="g">目標 &lt;7.0%　<span class="{{ 'hit' if m.gmi_pct < 7 else 'miss' }}">{{ '達標' if m.gmi_pct < 7 else '未達標' }}</span></div>
+        </div>
+        <div class="stat">
+          <div class="k">血糖變異度 CV</div>
+          <div class="v tnum">{{ '%.1f'|format(m.cv_pct) }}%</div>
+          <div class="g">目標 ≤36%　<span class="{{ 'hit' if m.cv_pct <= 36 else 'miss' }}">{{ '達標' if m.cv_pct <= 36 else '未達標' }}</span></div>
+        </div>
+        <div class="stat">
+          <div class="k">標準差 SD</div>
+          <div class="v tnum">{{ '%.0f'|format(m.sd) }}<span style="font-size:11px"> mg/dL</span></div>
+        </div>
+      </div>
+
+      {# 堆疊條的紅綠在色盲下不可分，這張表是等價的無障礙檢視，不是補充資料。
+         擺在統計數字下方而非獨立段落，是為了填滿堆疊條旁的縱向空間。 #}
+      <h3 style="margin-top:12px">各分區時間佔比</h3>
+      <table>
+        <thead><tr>
+          <th>分區</th><th class="n">佔比</th><th class="n">每日約</th>
+          <th class="n">國際目標</th><th>達標</th>
+        </tr></thead>
+        <tbody>
+        {% for row in band_rows %}
+          <tr>
+            <td><span class="swatch" style="background:{{ row.color }}"></span>{{ row.label }}</td>
+            <td class="n">{{ '%.1f'|format(row.pct) }}%</td>
+            <td class="n muted">{{ row.hhmm }}</td>
+            <td class="n muted">{{ row.goal }}%</td>
+            <td class="{{ 'hit' if row.ok else 'miss' }}">{{ '✓' if row.ok else '✗' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="text-align:center">
+      <h2>時間佔比</h2>
+      {{ tir_svg|safe }}
+    </div>
+  </section>
+
+  <section class="rule">
+    <h2>24 小時血糖分佈（AGP）</h2>
+    <div class="sub" style="margin-bottom:2px">
+      深線為中位數，深帶 25–75%，淺帶 5–95%；綠底為目標範圍 70–180 mg/dL
+    </div>
+    {{ agp_svg|safe }}
+  </section>
+
+  <section class="rule">
+    <h2>每日血糖曲線</h2>
+    {% if daily_note %}<div class="sub" style="margin-bottom:2px">{{ daily_note }}</div>{% endif %}
+    {{ daily_svg|safe }}
+  </section>
+
+  <footer>
+    本報告由個人血糖與飲食紀錄自動彙整，僅呈現資料型態，<strong>不構成任何胰島素劑量或用藥建議</strong>。
+    請與您的醫療團隊一同判讀。GMI 為依平均葡萄糖推估之糖化血色素指標，與實驗室 HbA1c 可能有落差。
+  </footer>
+</div>
+
+{# ── P2 餐食 × 血糖：LibreView 做不到的部分。沒有飲食資料就整頁不輸出 ── #}
+{% if responses %}
+<div class="page flow">
+  <header>
+    <div>
+      <h1>餐食 × 血糖反應</h1>
+      <div class="sub">每餐後 4 小時追蹤，疊合注射劑量與三大營養素</div>
+    </div>
+    <div class="sub tnum" style="text-align:right">
+      可分析 {{ responses|length }} 餐<br>
+      飲食紀錄自 {{ food_start }} 起
+    </div>
+  </header>
+
+  {% if thin_warning %}
+  <section><div class="thin">{{ thin_warning }}</div></section>
+  {% endif %}
+
+  <section class="meals">
+    {% for r in responses %}
+    <div class="card">
+      <div class="when tnum">{{ r.meal.when.strftime('%m-%d %H:%M') }}　{{ r.meal.label or '未分類' }}</div>
+      <div class="name">{{ r.meal.title }}</div>
+      <div class="macros">
+        <span>碳水 <b class="tnum">{{ '%.0f'|format(r.meal.carbs) }}g</b></span>
+        <span>蛋白 <b class="tnum">{{ '%.0f'|format(r.meal.protein) }}g</b></span>
+        <span>脂肪 <b class="tnum">{{ '%.0f'|format(r.meal.fat) }}g</b></span>
+      </div>
+      {{ r.svg|safe }}
+      <div class="verdict">{{ r.verdict|safe }}</div>
+    </div>
+    {% endfor %}
+  </section>
+
+  <footer>
+    餐前基準取進食前 20 分鐘內最後一筆讀數；峰值與到峰時間僅在餐後確實上升時標示。
+    「前置注射」為進食前多久施打，負值代表餐後才施打。單筆餐次的反應同時受前一餐殘餘胰島素、
+    活動量與壓力影響，<strong>單看一餐不足以推論因果</strong>。
+  </footer>
+</div>
+{% endif %}
+
+{# ── P3 資料品質與判讀限制 ──────────────────────────────────────────── #}
+<div class="page">
+  <header>
+    <div><h1>資料品質與判讀限制</h1></div>
+  </header>
+
+  <section>
+    <h2>資料涵蓋</h2>
+    <table>
+      <tbody>
+        <tr><td>分析期間</td><td class="n tnum">{{ m.start.strftime('%Y-%m-%d %H:%M') }} – {{ m.end.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+        <tr><td>血糖讀數（感測器歷史值）</td><td class="n tnum">{{ m.readings }} 筆</td></tr>
+        <tr><td>感測器涵蓋率</td><td class="n tnum">{{ '%.1f'|format(m.coverage_pct) }}%{% if m.coverage_pct < 70 %}　<span class="miss">低於 AGP 建議的 70%</span>{% endif %}</td></tr>
+        <tr><td>速效胰島素注射</td><td class="n tnum">{{ insulin_count }} 次・共 {{ '%.0f'|format(insulin_units) }} U</td></tr>
+        <tr><td>可分析餐次</td><td class="n tnum">{{ responses|length }} 餐{% if skipped %}・{{ skipped }} 餐餐後血糖資料不足{% endif %}{% if drinks %}・{{ drinks }} 筆無熱量飲品不列入{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="rule">
+    <h2>方法說明</h2>
+    <table>
+      <tbody>
+        <tr><td>血糖軌跡來源</td><td>僅採感測器每 15 分鐘的歷史值。主動掃描值與歷史值在時間上重疊，若一併計入會重複計數並高估涵蓋率，故排除於所有指標之外。</td></tr>
+        <tr><td>GMI 計算式</td><td class="tnum">3.31 + 0.02392 × 平均葡萄糖(mg/dL)</td></tr>
+        <tr><td>百分位平滑</td><td>各時間格納入前後 45 分鐘讀數，避免短期間資料使曲線過度鋸齒。</td></tr>
+        <tr><td>餐次合併</td><td>相隔 30 分鐘內的飲食紀錄視為同一次進食，否則同一頓飯會拆成多張卡片、重複計算同一個血糖峰值。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="rule">
+    <h2>色彩無障礙聲明</h2>
+    <p class="sub" style="margin:0 0 6px">
+      本報告第 1 頁沿用 LibreView、Dexcom 等臨床報告通用的紅／綠／黃／橙分區配色，
+      以保留醫師的判讀習慣。此配色在色覺辨識困難下並不安全——經模擬計算，
+      低血糖紅與目標綠在綠色弱（deutan）條件下的色差僅 <span class="tnum">ΔE 4.1</span>，
+      遠低於可區辨門檻 <span class="tnum">6.0</span>。因此本報告一律搭配下列補償，任何顏色都不單獨承載訊息：
+    </p>
+    <table>
+      <tbody>
+        <tr><td>固定排序</td><td>分區永遠由高到低排列，不因數值大小重新排序。</td></tr>
+        <tr><td>直接數值標籤</td><td>堆疊條每一段都標出百分比，過薄的分段以引線標示於外側。</td></tr>
+        <tr><td>等價表格檢視</td><td>第 1 頁的分區表格與堆疊條內容完全等價，可單獨判讀。</td></tr>
+        <tr><td>文字範圍標示</td><td>每個分區都附上 mg/dL 數值範圍，不倚賴顏色辨識。</td></tr>
+      </tbody>
+    </table>
+    <p class="sub" style="margin:6px 0 0">
+      第 2 頁以後的個人洞察圖表改用經無障礙驗證的配色（全配對色差通過綠色弱與紅色弱模擬）。
+    </p>
+  </section>
+
+  <footer>
+    產生時間 {{ generated }}・分析引擎 agp_report<br>
+    本報告不構成醫療建議。所有劑量調整請與您的醫療團隊討論。
+  </footer>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,18 @@
+[project]
+name = "agp-report"
+version = "0.1.0"
+description = "把 FreeStyle Libre 血糖 CSV 與飲食紀錄合成可帶去回診的 AGP 報告"
+requires-python = ">=3.10"
+dependencies = [
+    "jinja2>=3.1",
+]
+
+[project.scripts]
+agp-report = "agp_report.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agp_report"]
