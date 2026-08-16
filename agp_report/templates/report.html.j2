@@ -34,11 +34,12 @@
   /* 互動層。預設完全不顯示——沒有 JS 時就是一張靜態 SVG，與改動前無異。 */
   .xh-tip {
     position: absolute; pointer-events: none; z-index: 5; opacity: 0;
-    background: var(--ink); color: #fff; font-size: 10px; line-height: 1.45;
-    padding: 4px 7px; white-space: nowrap; font-variant-numeric: tabular-nums;
+    background: #fff; color: var(--ink); border: 1px solid var(--ink);
+    font-size: 10px; line-height: 1.45; padding: 4px 7px;
+    white-space: nowrap; font-variant-numeric: tabular-nums;
   }
   .xh-tip b { font-size: 12px; }
-  .xh-tip .ev { color: #ffd9a8; }
+  .xh-tip .ev { color: var(--ink2); }
   .xh-wrap { position: relative; }
 
   /* ── 列印：A4 行為完全維持原樣，本區塊是這份報告的原始設計 ──────────── */
@@ -138,6 +139,7 @@
   .ht th.lbl { width: 78px; text-align: left; font-size: 8px; color: var(--ink2);
                font-weight: 400; padding-left: 0; }
   .ht thead th { color: var(--muted); font-size: 7px; border-bottom: 0; }
+  .ht thead th.anchor { color: var(--ink2); font-weight: 700; }
   .ht tr.ins td { color: #8e2b6b; }
   .ht td.hi250 { background: #fbe6dd; }
   .ht td.lo70 { background: #fae3e3; font-weight: 600; }
@@ -461,14 +463,14 @@
   <section class="day">
     <div class="dhead">
       <b class="tnum">{{ d.day.strftime('%m-%d') }}</b>　週{{ d.weekday }}
-      <span class="dmeta tnum">讀數 {{ d.readings }}／96　注射 {{ '%.0f'|format(d.units) }}u</span>
+      <span class="dmeta tnum">TIR {{ '%.0f'|format(d.tir_pct) }}%　讀數 {{ d.readings }}／96　注射 {{ '%.0f'|format(d.units) }}u</span>
     </div>
     <div class="xh-wrap">{{ svg|safe }}</div>
     {% set by_hour = d.insulin_by_hour() %}
     <table class="ht">
       <thead><tr>
         <th class="lbl"></th>
-        {% for h in range(24) %}<th>{{ '%02d'|format(h) if h % 2 == 0 else '' }}</th>{% endfor %}
+        {% for h in range(24) %}<th class="{{ 'anchor' if h in (6, 12, 18) }}">{{ '%02d'|format(h) if h % 2 == 0 else '' }}</th>{% endfor %}
       </tr></thead>
       <tbody>
         <tr>

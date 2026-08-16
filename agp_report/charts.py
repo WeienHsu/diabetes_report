@@ -280,6 +280,8 @@ def meal_curve(response, width: int = 320, height: int = 128) -> str:
 # ── 每日詳圖 ──────────────────────────────────────────────────────────────
 DETAIL_LABEL_W = 78      # 左側標籤欄，與下方每小時表格的第一欄同寬才對得齊
 DETAIL_H = 84
+# 早／午／晚的分界。實線讓眼睛有錨點，其餘格線維持虛線。
+DETAIL_ANCHOR_HOURS = (6, 12, 18)
 SCAN_COLOR = "#2a78d6"   # 洞察頁配色的藍，與注射的紫可區分
 BOLUS_COLOR = "#8e2b6b"
 
@@ -305,10 +307,13 @@ def daily_detail(detail, width: int = 710, index: int = 0) -> str:
 
     out.append(f'<rect x="{DETAIL_LABEL_W}" y="{_fmt(y(TARGET_HI))}" width="{_fmt(plot_w)}" '
                f'height="{_fmt(y(TARGET_LO) - y(TARGET_HI))}" '
-               f'fill="{BAND_COLOR["target"]}" opacity="0.08"/>')
+               f'fill="{BAND_COLOR["target"]}" opacity="0.13"/>')
     for hour in range(0, 25, 2):
+        anchor = hour in DETAIL_ANCHOR_HOURS
         out.append(f'<line x1="{_fmt(x(hour * 60))}" y1="0" x2="{_fmt(x(hour * 60))}" '
-                   f'y2="{DETAIL_H}" stroke="{GRID}" stroke-width="0.5" stroke-dasharray="2 3"/>')
+                   f'y2="{DETAIL_H}" stroke="{AXIS if anchor else GRID}" '
+                   f'stroke-width="{0.8 if anchor else 0.5}"'
+                   f'{"" if anchor else " stroke-dasharray=\"2 3\""}/>')
     for value in (70, 180, 350):
         out.append(f'<line x1="{DETAIL_LABEL_W}" y1="{_fmt(y(value))}" x2="{width}" '
                    f'y2="{_fmt(y(value))}" stroke="{AXIS}" stroke-width="0.5"/>')

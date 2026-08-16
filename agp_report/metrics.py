@@ -90,6 +90,14 @@ class DayDetail:
     def units(self) -> float:
         return sum(u for _, u in self.insulin)
 
+    @property
+    def tir_pct(self) -> float:
+        """當日目標範圍內時間。門檻沿用 band_of，不另寫一份 70/180。"""
+        values = [v for v in self.slots if v is not None]
+        if not values:
+            return 0.0
+        return sum(1 for v in values if band_of(v) == "target") / len(values) * 100
+
     def insulin_by_hour(self) -> dict[int, float]:
         by_hour: dict[int, float] = {}
         for minute, units in self.insulin:
