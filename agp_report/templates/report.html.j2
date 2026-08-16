@@ -42,6 +42,31 @@
   .xh-tip .ev { color: var(--ink2); }
   .xh-wrap { position: relative; }
 
+  /* 折疊。用原生 details/summary——鍵盤操作與無障礙都是免費的，不需要 JS。
+     列印時一律展開：下載的 PDF 由伺服器端從儲存檔轉出，那份永遠是 open；
+     使用者自己 Ctrl+P 的情況由頁尾的 beforeprint 補上。 */
+  .sect { border: 0; }
+  .sect > summary {
+    list-style: none; cursor: pointer; position: relative;
+  }
+  .sect > summary::-webkit-details-marker { display: none; }
+  .sect > summary header { margin-bottom: 12px; }
+  .sect > summary .toggle {
+    position: absolute; right: 0; top: 2px; width: 9px; height: 9px;
+    border-right: 1.5px solid var(--ink2); border-bottom: 1.5px solid var(--ink2);
+    transform: rotate(45deg); transition: transform .12s;
+  }
+  .sect[open] > summary .toggle { transform: rotate(-135deg); top: 6px; }
+  .sect:not([open]) > summary header { border-bottom-color: var(--grid); }
+  @media screen {
+    .sect > summary:hover header h1 { text-decoration: underline; }
+    .sect > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  }
+  @media print {
+    .sect > summary { list-style: none; }
+    .sect > summary .toggle { display: none; }
+  }
+
   /* ── 列印：A4 行為完全維持原樣，本區塊是這份報告的原始設計 ──────────── */
   @media print {
     body { background: #fff; }
@@ -304,8 +329,7 @@
 {# ── P2 時段與每日模式：把 AGP 的形狀翻譯成「哪個時段、哪一天」 ──────────
    低血糖事件數會隨期間成長（14 天 3 次、90 天 22 次），與餐食卡片同一個性質，
    因此同樣不鎖定頁數。截斷一份臨床安全清單比多印一頁糟得多。 #}
-<div class="page flow">
-  <header>
+<div class="page flow"><details class="sect" open><summary><header>
     <div>
       <h1>時段與每日模式</h1>
       <div class="sub">找出問題集中在一天中的哪個時段、哪一天</div>
@@ -314,7 +338,7 @@
       {{ m.start.strftime('%Y-%m-%d') }} – {{ m.end.strftime('%Y-%m-%d') }}（{{ m.days }} 天）<br>
       低血糖事件 {{ events|length }} 次
     </div>
-  </header>
+  </header><span class="toggle" aria-hidden="true"></span></summary><div class="sect-body">
 
   <section>
     <h2>每 2 小時時段統計</h2>
@@ -444,22 +468,21 @@
     其餘日期的速效胰島素欄反映的是<strong>記錄</strong>而非實際注射量，數值明顯偏低通常代表當天漏記。
     本報告只呈現資料型態，不構成任何胰島素劑量或用藥建議。
   </footer>
-</div>
+</div></details></div>
 
 {# ── P3 每日詳圖：每日縮圖看不出的敘事——幾點打了幾單位、之後血糖怎麼走。
    單日區塊約 158px，A4 一頁裝 5 天，7 天自然跨成 2 頁。 #}
 {% if details %}
-<div class="page flow">
-  <header>
+<div class="page flow"><details class="sect" open><summary><header>
     <div>
       <h1>每日詳細記錄</h1>
       <div class="sub">每日完整曲線、注射時刻與每小時極值</div>
     </div>
     <div class="sub tnum" style="text-align:right">
       {{ details[0][0].day.strftime('%Y-%m-%d') }} – {{ details[-1][0].day.strftime('%Y-%m-%d') }}<br>
-      僅列最近 {{ detail_days }} 天
+      僅列最近 {{ detail_days }} 天{% if detail_short %}<br><span class="miss">{{ detail_short }}</span>{% endif %}
     </div>
-  </header>
+  </header><span class="toggle" aria-hidden="true"></span></summary><div class="sect-body">
 
   {% for d, svg in details %}
   <section class="day">
@@ -521,13 +544,12 @@
     曲線依血糖所屬分區上色。感測器斷線超過 30 分鐘的前後兩段<strong>不連線</strong>——
     直接連起來會描出一條實際不存在的平緩曲線。每小時欄位空白代表該小時沒有讀數，不是 0。
   </footer>
-</div>
+</div></details></div>
 {% endif %}
 
 {# ── P4 餐食 × 血糖：LibreView 做不到的部分。沒有飲食資料就整頁不輸出 ── #}
 {% if responses %}
-<div class="page flow">
-  <header>
+<div class="page flow"><details class="sect" open><summary><header>
     <div>
       <h1>餐食 × 血糖反應</h1>
       <div class="sub">每餐後 4 小時追蹤，疊合注射劑量與三大營養素</div>
@@ -536,7 +558,7 @@
       可分析 {{ responses|length }} 餐<br>
       飲食紀錄自 {{ food_start }} 起
     </div>
-  </header>
+  </header><span class="toggle" aria-hidden="true"></span></summary><div class="sect-body">
 
   {% if thin_warning %}
   <section><div class="thin">{{ thin_warning }}</div></section>
@@ -563,14 +585,13 @@
     「前置注射」為進食前多久施打，負值代表餐後才施打。單筆餐次的反應同時受前一餐殘餘胰島素、
     活動量與壓力影響，<strong>單看一餐不足以推論因果</strong>。
   </footer>
-</div>
+</div></details></div>
 {% endif %}
 
 {# ── P3 資料品質與判讀限制 ──────────────────────────────────────────── #}
-<div class="page">
-  <header>
+<div class="page"><details class="sect" open><summary><header>
     <div><h1>資料品質與判讀限制</h1></div>
-  </header>
+  </header><span class="toggle" aria-hidden="true"></span></summary><div class="sect-body">
 
   <section>
     <h2>資料涵蓋</h2>
@@ -645,7 +666,7 @@
     產生時間 {{ generated }}・分析引擎 agp_report<br>
     本報告不構成醫療建議。所有劑量調整請與您的醫療團隊討論。
   </footer>
-</div>
+</div></details></div>
 
 {# ── 互動：滑過曲線顯示該時刻的數值 ─────────────────────────────────────
    專案原本的決定是「不用 JS 圖表庫（離線與列印不可靠）」——反對的是外部
@@ -664,6 +685,19 @@
     return v < 54 ? "#8b1a1a" : v < 70 ? "#d03b3b"
          : v < 180 ? "#0ca30c" : v < 250 ? "#fab219" : "#ec835a";
   };
+
+  // 使用者自己列印時，折疊起來的區段不能就這樣消失在紙本上。
+  // 下載 PDF 走的是伺服器端轉檔，那份儲存檔永遠是 open，不受這裡影響。
+  window.addEventListener("beforeprint", function () {
+    Array.prototype.forEach.call(document.querySelectorAll("details.sect"), function (d) {
+      if (!d.open) { d.dataset.reopen = "1"; d.open = true; }
+    });
+  });
+  window.addEventListener("afterprint", function () {
+    Array.prototype.forEach.call(document.querySelectorAll("details.sect"), function (d) {
+      if (d.dataset.reopen) { d.open = false; delete d.dataset.reopen; }
+    });
+  });
 
   Array.prototype.forEach.call(document.querySelectorAll("svg.xh"), function (svg) {
     var kind = svg.dataset.xh;
