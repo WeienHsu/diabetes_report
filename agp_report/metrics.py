@@ -71,7 +71,30 @@ class TimeBlock:
     @property
     def band(self) -> str:
         """平均值所屬分區，供報告替該格上淡色底。"""
-        return _band_of(self.mean)
+        return band_of(self.mean)
+
+
+@dataclass
+class DayDetail:
+    """單日的完整軌跡，供每日詳圖使用。"""
+
+    day: date
+    weekday: str
+    slots: list[float | None]                  # 96 格（每 15 分鐘），缺值為 None
+    hourly: list[tuple[float, float] | None]   # 24 個 (最高, 最低)，該小時無讀數為 None
+    insulin: list[tuple[int, float]]           # (當日第幾分鐘, 單位)
+    scans: list[int]                           # (當日第幾分鐘)
+    readings: int
+
+    @property
+    def units(self) -> float:
+        return sum(u for _, u in self.insulin)
+
+    def insulin_by_hour(self) -> dict[int, float]:
+        by_hour: dict[int, float] = {}
+        for minute, units in self.insulin:
+            by_hour[minute // 60] = by_hour.get(minute // 60, 0.0) + units
+        return by_hour
 
 
 @dataclass
@@ -104,7 +127,8 @@ class Metrics:
     daily: list[dict]        # 每日縮圖用
 
 
-def _band_of(mgdl: float) -> str:
+def band_of(mgdl: float) -> str:
+    """血糖值所屬分區。charts 也要用，因此門檻只在這裡定義一份。"""
     for key, _label, lo, hi, _goal in BANDS:
         if (lo is None or mgdl >= lo) and (hi is None or mgdl < hi):
             return key
@@ -150,7 +174,7 @@ def compute(readings: list[tuple[datetime, float]], days: int,
 
     counts = {key: 0 for key, *_ in BANDS}
     for v in values:
-        counts[_band_of(v)] += 1
+        counts[band_of(v)] += 1
     band_pct = {k: c / len(values) * 100 for k, c in counts.items()}
 
     # 百分位曲線：把每筆讀數放進當日的時間格，再跨日彙總同一格
@@ -257,6 +281,48 @@ def time_blocks(readings: list[tuple[datetime, float]],
             carbs_mean=statistics.fmean(carbs) if carbs else 0.0,
         ))
     return blocks
+
+
+def daily_details(readings: list[tuple[datetime, float]],
+                  insulin: list[tuple[datetime, float]],
+                  scans: list[tuple[datetime, float]],
+                  limit: int = 7) -> list[DayDetail]:
+    """最近 N 天的完整軌跡。
+
+    每日縮圖只有 58px 高、沒有座標軸也沒有標記，看得出起伏但看不出敘事。
+    這裡保留每 15 分鐘的原始格位與注射時刻，才看得到「08:00 打 10u 之後
+    血糖從 208 降到 108」這種因果線索。
+
+    天數固定不隨分析期間變動——90 天會排出 90 個全寬圖表。
+    """
+    by_day: dict[date, list[tuple[int, float]]] = {}
+    for when, value in readings:
+        by_day.setdefault(when.date(), []).append(
+            (when.hour * 60 + when.minute, value))
+
+    details = []
+    for day in sorted(by_day)[-limit:]:
+        slots: list[float | None] = [None] * BINS_PER_DAY
+        for minute, value in by_day[day]:
+            slots[minute // READING_INTERVAL_MIN] = value
+
+        hourly: list[tuple[float, float] | None] = []
+        for hour in range(24):
+            per_hour = 60 // READING_INTERVAL_MIN
+            values = [v for v in slots[hour * per_hour:(hour + 1) * per_hour] if v is not None]
+            # 沒有讀數的小時留 None，不能填 0——0 會被讀成「血糖是 0」
+            hourly.append((max(values), min(values)) if values else None)
+
+        details.append(DayDetail(
+            day=day,
+            weekday=WEEKDAY_ZH[day.weekday()],
+            slots=slots,
+            hourly=hourly,
+            insulin=sorted((t.hour * 60 + t.minute, u) for t, u in insulin if t.date() == day),
+            scans=sorted(t.hour * 60 + t.minute for t, _ in scans if t.date() == day),
+            readings=sum(1 for v in slots if v is not None),
+        ))
+    return details
 
 
 def daily_summary(readings: list[tuple[datetime, float]],
