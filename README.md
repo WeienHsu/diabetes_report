@@ -158,17 +158,32 @@ sudo bash deploy/setup-root.sh
 ```bash
 cloudflared tunnel login          # 會給一個網址，用瀏覽器授權 whtwbrown.com
 cloudflared tunnel create cgm     # 記下輸出的 UUID
+```
+
+`create` 把憑證寫在**你的家目錄**（`~/.cloudflared/<UUID>.json`），
+但服務以 root 執行、讀的是 `/etc/cloudflared/`。中間要自己複製過去：
+
+```bash
+UUID=<剛才那組 UUID>
+sudo install -o root -g root -m 600 ~/.cloudflared/$UUID.json /etc/cloudflared/
+
 sudo cp deploy/cloudflared-config.yml /etc/cloudflared/config.yml
 sudo nano /etc/cloudflared/config.yml   # 把兩處 TUNNEL_ID 換成那組 UUID
-sudo chmod 600 /etc/cloudflared/*.json  # 憑證檔
-cloudflared tunnel route dns cgm cgm.whtwbrown.com
+
+cloudflared tunnel route dns cgm cgm.whtwbrown.com   # 不要加 sudo
 sudo cloudflared service install
 sudo systemctl restart cloudflared
 ```
 
-> `route dns` 會自動建立一筆**橘雲（proxied）的 CNAME**。這與
+> `route dns` **不能加 sudo**——它要讀 `~/.cloudflared/cert.pem`，
+> 加了 sudo 會去找 root 的家目錄然後失敗。
+
+> `route dns` 建立的是一筆**橘雲（proxied）的 CNAME**。這與
 > `lala_dashboard` 指向 Vercel 那筆「必須灰雲 DNS only」的規則**相反**，
 > 兩筆記錄在同一個 zone 裡，不要照抄。
+
+> `~/.cloudflared/` 裡的 `cert.pem`（帳號授權）與 `<UUID>.json`（tunnel 憑證正本）
+> 都要留著，兩個都是祕密。
 
 **3. 加上認證**（Cloudflare 儀表板，不能用指令）
 
