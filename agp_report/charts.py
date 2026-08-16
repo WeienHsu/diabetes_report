@@ -280,8 +280,11 @@ def meal_curve(response, width: int = 320, height: int = 128) -> str:
 # ── 每日詳圖 ──────────────────────────────────────────────────────────────
 DETAIL_LABEL_W = 78      # 左側標籤欄，與下方每小時表格的第一欄同寬才對得齊
 DETAIL_H = 84
+# 早／午／晚的分界。實線讓眼睛有錨點，其餘格線維持虛線。
+DETAIL_ANCHOR_HOURS = (6, 12, 18)
 SCAN_COLOR = "#2a78d6"   # 洞察頁配色的藍，與注射的紫可區分
 BOLUS_COLOR = "#8e2b6b"
+MEAL_COLOR = SERIES["carbs"]   # 洞察頁的碳水藍，與注射的紫在色與形上都分得開
 
 
 def daily_detail(detail, width: int = 710, index: int = 0) -> str:
@@ -305,10 +308,13 @@ def daily_detail(detail, width: int = 710, index: int = 0) -> str:
 
     out.append(f'<rect x="{DETAIL_LABEL_W}" y="{_fmt(y(TARGET_HI))}" width="{_fmt(plot_w)}" '
                f'height="{_fmt(y(TARGET_LO) - y(TARGET_HI))}" '
-               f'fill="{BAND_COLOR["target"]}" opacity="0.08"/>')
+               f'fill="{BAND_COLOR["target"]}" opacity="0.13"/>')
     for hour in range(0, 25, 2):
+        anchor = hour in DETAIL_ANCHOR_HOURS
         out.append(f'<line x1="{_fmt(x(hour * 60))}" y1="0" x2="{_fmt(x(hour * 60))}" '
-                   f'y2="{DETAIL_H}" stroke="{GRID}" stroke-width="0.5" stroke-dasharray="2 3"/>')
+                   f'y2="{DETAIL_H}" stroke="{AXIS if anchor else GRID}" '
+                   f'stroke-width="{0.8 if anchor else 0.5}"'
+                   f'{"" if anchor else " stroke-dasharray=\"2 3\""}/>')
     for value in (70, 180, 350):
         out.append(f'<line x1="{DETAIL_LABEL_W}" y1="{_fmt(y(value))}" x2="{width}" '
                    f'y2="{_fmt(y(value))}" stroke="{AXIS}" stroke-width="0.5"/>')
@@ -340,6 +346,14 @@ def daily_detail(detail, width: int = 710, index: int = 0) -> str:
                    f'y2="{_fmt(top + 6)}" stroke="{BOLUS_COLOR}" stroke-width="1.6"/>')
         out.append(f'<circle cx="{_fmt(x(minute))}" cy="{_fmt(top - 1.5)}" r="1.9" '
                    f'fill="{BOLUS_COLOR}"/>')
+
+    for minute, _meal in detail.meals:
+        value = slots[min(minute // 15, len(slots) - 1)]
+        cy = min((y(value) if value is not None else y(TARGET_LO)) + 8, DETAIL_H - 3)
+        cx = x(minute)
+        out.append(f'<path d="M{_fmt(cx)} {_fmt(cy - 3.2)}L{_fmt(cx + 3.2)} {_fmt(cy)}'
+                   f'L{_fmt(cx)} {_fmt(cy + 3.2)}L{_fmt(cx - 3.2)} {_fmt(cy)}Z" '
+                   f'fill="{MEAL_COLOR}"/>')
 
     out.append(_interactive(DETAIL_LABEL_W, width, 0, DETAIL_H))
     out.append("</svg>")

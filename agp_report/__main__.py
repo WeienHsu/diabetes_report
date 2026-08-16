@@ -116,6 +116,7 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
 
     responses, skipped, drinks, food_start = [], 0, 0, "—"
     block_meals: list[tuple[datetime, float]] = []
+    period_meals: list = []
     if food_path:
         all_meals = parse_food.parse(food_path)
         # 這幾乎一定是匯出錯分頁。原本只是靜靜產出 0 餐，讀者要翻到第 3 頁
@@ -127,6 +128,7 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         if all_meals:
             food_start = all_meals[0].when.strftime("%Y-%m-%d")
         block_meals = [(x.when, x.carbs) for x in all_meals if m.start <= x.when <= m.end]
+        period_meals = [x for x in all_meals if m.start <= x.when <= m.end]
         for r in meals.analyse_all(all_meals, libre.historic, libre.insulin):
             if not (m.start <= r.meal.when <= m.end):
                 continue
@@ -143,7 +145,8 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
     events = metrics.hypo_events(period, period_insulin)
     blocks = metrics.time_blocks(period, period_insulin, block_meals, days)
     days_rows = metrics.daily_summary(period, period_insulin, events)
-    details = metrics.daily_details(period, period_insulin, libre.scans, detail_days)
+    details = metrics.daily_details(period, period_insulin, libre.scans,
+                                   detail_days, period_meals)
 
     env = Environment(
         loader=FileSystemLoader(Path(__file__).parent / "templates"),
@@ -164,7 +167,10 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         xh_data=json.dumps({
             "day": [{"label": f"{d.day:%m-%d}",
                      "slots": [None if v is None else round(v) for v in d.slots],
-                     "ins": [[m, u] for m, u in d.insulin]} for d in details],
+                     "ins": [[m, u] for m, u in d.insulin],
+                     "meal": [[mm, x.label or "未分類", x.title,
+                               round(x.carbs), round(x.protein), round(x.fat)]
+                              for mm, x in d.meals]} for d in details],
             "agp": [[round(b["p5"]), round(b["p25"]), round(b["p50"]),
                      round(b["p75"]), round(b["p95"]), b["n"]] for b in m.agp],
         }, separators=(",", ":")),

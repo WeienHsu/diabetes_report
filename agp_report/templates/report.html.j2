@@ -34,11 +34,12 @@
   /* 互動層。預設完全不顯示——沒有 JS 時就是一張靜態 SVG，與改動前無異。 */
   .xh-tip {
     position: absolute; pointer-events: none; z-index: 5; opacity: 0;
-    background: var(--ink); color: #fff; font-size: 10px; line-height: 1.45;
-    padding: 4px 7px; white-space: nowrap; font-variant-numeric: tabular-nums;
+    background: #fff; color: var(--ink); border: 1px solid var(--ink);
+    font-size: 10px; line-height: 1.45; padding: 4px 7px;
+    white-space: nowrap; font-variant-numeric: tabular-nums;
   }
   .xh-tip b { font-size: 12px; }
-  .xh-tip .ev { color: #ffd9a8; }
+  .xh-tip .ev { color: var(--ink2); }
   .xh-wrap { position: relative; }
 
   /* ── 列印：A4 行為完全維持原樣，本區塊是這份報告的原始設計 ──────────── */
@@ -138,7 +139,9 @@
   .ht th.lbl { width: 78px; text-align: left; font-size: 8px; color: var(--ink2);
                font-weight: 400; padding-left: 0; }
   .ht thead th { color: var(--muted); font-size: 7px; border-bottom: 0; }
+  .ht thead th.anchor { color: var(--ink2); font-weight: 700; }
   .ht tr.ins td { color: #8e2b6b; }
+  .ht tr.carb td { color: #2a78d6; }
   .ht td.hi250 { background: #fbe6dd; }
   .ht td.lo70 { background: #fae3e3; font-weight: 600; }
   .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 9px;
@@ -146,6 +149,7 @@
   .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px;
               vertical-align: -1px; }
   .legend i.ring { background: #fff; border: 1px solid #2a78d6; border-radius: 50%; }
+  .legend i.diamond { background: #2a78d6; transform: rotate(45deg); width: 7px; height: 7px; }
 
   .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .card { border: 1px solid var(--grid); padding: 8px 9px; background: #fff; }
@@ -461,14 +465,14 @@
   <section class="day">
     <div class="dhead">
       <b class="tnum">{{ d.day.strftime('%m-%d') }}</b>　週{{ d.weekday }}
-      <span class="dmeta tnum">讀數 {{ d.readings }}／96　注射 {{ '%.0f'|format(d.units) }}u</span>
+      <span class="dmeta tnum">TIR {{ '%.0f'|format(d.tir_pct) }}%　讀數 {{ d.readings }}／96　注射 {{ '%.0f'|format(d.units) }}u</span>
     </div>
     <div class="xh-wrap">{{ svg|safe }}</div>
     {% set by_hour = d.insulin_by_hour() %}
     <table class="ht">
       <thead><tr>
         <th class="lbl"></th>
-        {% for h in range(24) %}<th>{{ '%02d'|format(h) if h % 2 == 0 else '' }}</th>{% endfor %}
+        {% for h in range(24) %}<th class="{{ 'anchor' if h in (6, 12, 18) }}">{{ '%02d'|format(h) if h % 2 == 0 else '' }}</th>{% endfor %}
       </tr></thead>
       <tbody>
         <tr>
@@ -489,6 +493,15 @@
           <td>{% if by_hour.get(h) %}<b>{{ '%.1f'|format(by_hour[h]) }}</b>{% endif %}</td>
           {% endfor %}
         </tr>
+        {% set carbs = d.carbs_by_hour() %}
+        {% if carbs %}
+        <tr class="carb">
+          <th class="lbl">碳水 g</th>
+          {% for h in range(24) %}
+          <td>{% if carbs.get(h) %}<b>{{ '%.0f'|format(carbs[h]) }}</b>{% endif %}</td>
+          {% endfor %}
+        </tr>
+        {% endif %}
       </tbody>
     </table>
   </section>
@@ -500,7 +513,8 @@
     <span><i style="background:#ec835a"></i>很高 &gt;250</span>
     <span><i style="background:#d03b3b"></i>低 &lt;70</span>
     <span><i class="ring"></i>掃描</span>
-    <span><i style="background:#8e2b6b"></i>速效注射</span>
+    <span><i style="background:#8e2b6b"></i>速效注射（曲線上方）</span>
+    <span><i class="diamond"></i>進食（曲線下方）</span>
   </div>
 
   <footer>
@@ -702,6 +716,13 @@
             return p[1].toFixed(1) + "u";
           }).join("、") + "</span>";
         }
+        (day.meal || []).filter(function (mm) {
+          return Math.abs(mm[0] - minute) <= 15;
+        }).forEach(function (mm) {
+          html += "<br>" + mm[1] + "　" + mm[2]
+                + '<br><span class="ev">碳水 ' + mm[3] + "g・蛋白 " + mm[4]
+                + "g・脂肪 " + mm[5] + "g</span>";
+        });
       } else {
         var row = DATA.agp[i];
         value = row[2];
