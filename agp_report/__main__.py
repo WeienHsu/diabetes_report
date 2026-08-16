@@ -100,7 +100,8 @@ class Summary:
 
 def build_report(glucose_path: str, food_path: str | None = None, days: int = 14,
                  toolbar: dict[str, str] | None = None,
-                 detail_days: int = DAILY_DETAIL_DAYS) -> tuple[str, Summary]:
+                 detail_days: int = DAILY_DETAIL_DAYS,
+                 summary_days: int = DAILY_PROFILE_DAYS) -> tuple[str, Summary]:
     """讀 CSV、算指標、組出單檔自包含 HTML。回傳 (html, summary)。
 
     toolbar 只有 web 層會給（{"pdf": ..., "new": ...}），列印時一律隱藏，
@@ -175,9 +176,9 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
                      round(b["p75"]), round(b["p95"]), b["n"]] for b in m.agp],
         }, separators=(",", ":")),
         # 90 天會排出 91 列，把 P2 撐成三頁以上——與每日縮圖砍到 14 天同一個問題
-        days_rows=days_rows[-DAILY_PROFILE_DAYS:],
-        days_note=(f"僅列最近 {DAILY_PROFILE_DAYS} 天；時段統計與低血糖事件涵蓋完整 "
-                   f"{m.days} 天期間" if len(days_rows) > DAILY_PROFILE_DAYS else None),
+        days_rows=days_rows[-summary_days:],
+        days_note=(f"僅列最近 {summary_days} 天；時段統計與低血糖事件涵蓋完整 "
+                   f"{m.days} 天期間" if len(days_rows) > summary_days else None),
         tir_svg=charts.tir_bar(m.band_pct, height=300),
         agp_svg=charts.agp_curve(m.agp),
         daily_svg=charts.daily_grid(m.daily[-DAILY_PROFILE_DAYS:]),
