@@ -14,7 +14,12 @@ from pathlib import Path
 
 DEFAULTS = {"detail_days": 7, "summary_days": 14, "retention_days": 0}
 
-DETAIL_CHOICES = (3, 7, 14)
+# 每個選項的預估總頁數，實測自 90 天分析期間。頁數與檔案大小是這個設定
+# 唯一的代價，標在選項旁邊才能讓人在「選的當下」就看見，而不是產完才發現。
+DETAIL_CHOICES = (7, 14, 21, 28, 60, 90)
+DETAIL_COST = {7: "約 8 頁", 14: "約 9 頁", 21: "約 11 頁",
+               28: "約 12 頁", 60: "約 17 頁・1.1MB", 90: "約 22 頁・1.7MB"}
+HEAVY_DETAIL = 60   # 這個以上要提醒手機載入會變慢
 SUMMARY_CHOICES = (7, 14, 30)
 # 0 代表永久保留。刻意不提供「1 天」——手滑選到會在下一次清除時洗掉全部歷史。
 RETENTION_CHOICES = (0, 30, 90, 180, 365)

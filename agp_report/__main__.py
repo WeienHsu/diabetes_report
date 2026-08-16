@@ -165,6 +165,10 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         toolbar=toolbar,
         details=[(d, charts.daily_detail(d, index=i)) for i, d in enumerate(details)],
         detail_days=detail_days,
+        # 要求的天數超過分析期間時資料根本不存在。少給就要講，
+        # 否則使用者以為自己看到的是 28 天。
+        detail_short=(f"分析期間僅涵蓋 {len(details)} 天，少於設定的 {detail_days} 天"
+                      if len(details) < detail_days else None),
         xh_data=json.dumps({
             "day": [{"label": f"{d.day:%m-%d}",
                      "slots": [None if v is None else round(v) for v in d.slots],
