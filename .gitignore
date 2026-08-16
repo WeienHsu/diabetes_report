@@ -13,6 +13,10 @@ out/
 *.png
 *.xlsx
 
+# 例外：examples/ 是合成的示範資料與格式規格，不含任何個人資訊。
+# 產生方式見 examples/generate.py，可重跑驗證。
+!examples/*.csv
+
 # ── Python ──────────────────────────────────────────────────
 .venv/
 venv/

@@ -24,6 +24,23 @@
 
 ---
 
+## 想先看看長什麼樣子
+
+`examples/` 有一組合成的示範資料（14 天，不含任何個人資訊），直接丟上網頁或跑：
+
+```bash
+uv run agp-report --glucose examples/glucose.csv --food examples/food.csv \
+                  --days 14 --out out/demo.html
+```
+
+裡面刻意鋪了低血糖事件、感測器斷線、血糖衝破 300、餐次合併等情境，
+指標也落在部分達標、部分未達標，一份就看得到報告的全部樣貌。
+
+**用其他裝置的資料？** `examples/README.md` 是可執行的格式規格——
+只要你的來源能轉成那兩個檔案的欄位，這個專案就能用。
+
+---
+
 ## 報告怎麼讀
 
 | 頁 | 內容 |
