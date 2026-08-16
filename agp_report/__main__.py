@@ -100,7 +100,9 @@ class Summary:
 
 def build_report(glucose_path: str, food_path: str | None = None, days: int = 14,
                  toolbar: dict[str, str] | None = None,
-                 detail_days: int = DAILY_DETAIL_DAYS) -> tuple[str, Summary]:
+                 detail_days: int = DAILY_DETAIL_DAYS,
+                 summary_days: int = DAILY_PROFILE_DAYS,
+                 meal_cards: int = 0) -> tuple[str, Summary]:
     """讀 CSV、算指標、組出單檔自包含 HTML。回傳 (html, summary)。
 
     toolbar 只有 web 層會給（{"pdf": ..., "new": ...}），列印時一律隱藏，
@@ -116,6 +118,7 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
 
     responses, skipped, drinks, food_start = [], 0, 0, "—"
     block_meals: list[tuple[datetime, float]] = []
+    period_meals: list = []
     if food_path:
         all_meals = parse_food.parse(food_path)
         # 這幾乎一定是匯出錯分頁。原本只是靜靜產出 0 餐，讀者要翻到第 3 頁
@@ -127,6 +130,7 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         if all_meals:
             food_start = all_meals[0].when.strftime("%Y-%m-%d")
         block_meals = [(x.when, x.carbs) for x in all_meals if m.start <= x.when <= m.end]
+        period_meals = [x for x in all_meals if m.start <= x.when <= m.end]
         for r in meals.analyse_all(all_meals, libre.historic, libre.insulin):
             if not (m.start <= r.meal.when <= m.end):
                 continue
@@ -135,15 +139,24 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
             elif not r.enough_data:
                 skipped += 1
             else:
-                r.svg = charts.meal_curve(r)
-                r.verdict = _verdict(r)
                 responses.append(r)
+
+    # 卡片只列最近 N 餐，但樣本數的判定一律用真實總數——否則設了上限之後，
+    # 樣本不足的警語會在實際只有 12 餐時就消失，那是報告在騙人。
+    shown = responses[-meal_cards:] if meal_cards else responses
+    for r in shown:
+        r.svg = charts.meal_curve(r)
+        r.verdict = _verdict(r)
+    # 明確標示為挑選過的清單，讀者才知道自己在看什麼
+    risers = sorted((r for r in responses if r.rose and r.delta),
+                    key=lambda r: r.delta, reverse=True)[:3]
 
     period_insulin = [(t, u) for t, u in libre.insulin if m.start <= t <= m.end]
     events = metrics.hypo_events(period, period_insulin)
     blocks = metrics.time_blocks(period, period_insulin, block_meals, days)
     days_rows = metrics.daily_summary(period, period_insulin, events)
-    details = metrics.daily_details(period, period_insulin, libre.scans, detail_days)
+    details = metrics.daily_details(period, period_insulin, libre.scans,
+                                   detail_days, period_meals)
 
     env = Environment(
         loader=FileSystemLoader(Path(__file__).parent / "templates"),
@@ -161,24 +174,35 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         toolbar=toolbar,
         details=[(d, charts.daily_detail(d, index=i)) for i, d in enumerate(details)],
         detail_days=detail_days,
+        # 要求的天數超過分析期間時資料根本不存在。少給就要講，
+        # 否則使用者以為自己看到的是 28 天。
+        detail_short=(f"分析期間僅涵蓋 {len(details)} 天，少於設定的 {detail_days} 天"
+                      if len(details) < detail_days else None),
         xh_data=json.dumps({
             "day": [{"label": f"{d.day:%m-%d}",
                      "slots": [None if v is None else round(v) for v in d.slots],
-                     "ins": [[m, u] for m, u in d.insulin]} for d in details],
+                     "ins": [[m, u] for m, u in d.insulin],
+                     "meal": [[mm, x.label or "未分類", x.title,
+                               round(x.carbs), round(x.protein), round(x.fat)]
+                              for mm, x in d.meals]} for d in details],
             "agp": [[round(b["p5"]), round(b["p25"]), round(b["p50"]),
                      round(b["p75"]), round(b["p95"]), b["n"]] for b in m.agp],
         }, separators=(",", ":")),
         # 90 天會排出 91 列，把 P2 撐成三頁以上——與每日縮圖砍到 14 天同一個問題
-        days_rows=days_rows[-DAILY_PROFILE_DAYS:],
-        days_note=(f"僅列最近 {DAILY_PROFILE_DAYS} 天；時段統計與低血糖事件涵蓋完整 "
-                   f"{m.days} 天期間" if len(days_rows) > DAILY_PROFILE_DAYS else None),
+        days_rows=days_rows[-summary_days:],
+        days_note=(f"僅列最近 {summary_days} 天；時段統計與低血糖事件涵蓋完整 "
+                   f"{m.days} 天期間" if len(days_rows) > summary_days else None),
         tir_svg=charts.tir_bar(m.band_pct, height=300),
         agp_svg=charts.agp_curve(m.agp),
         daily_svg=charts.daily_grid(m.daily[-DAILY_PROFILE_DAYS:]),
         daily_note=(f"僅顯示最近 {DAILY_PROFILE_DAYS} 天；上方各項指標仍涵蓋完整 "
                     f"{m.days} 天期間" if len(m.daily) > DAILY_PROFILE_DAYS else None),
         band_rows=_band_rows(m.band_pct),
-        responses=responses,
+        responses=shown,
+        meal_total=len(responses),
+        meal_note=(f"僅列最近 {len(shown)} 餐（期間內可分析 {len(responses)} 餐）"
+                   if len(shown) < len(responses) else None),
+        risers=risers,
         skipped=skipped,
         drinks=drinks,
         food_start=food_start,
