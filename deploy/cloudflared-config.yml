@@ -2,6 +2,10 @@
 #
 # 把 TUNNEL_ID 換成 `cloudflared tunnel create cgm` 產生的那一組 UUID。
 # 這個檔案本身沒有祕密，祕密在 credentials-file 指向的 JSON（權限須 600）。
+#
+# 注意：`tunnel create` 把憑證寫在 ~/.cloudflared/<UUID>.json，
+# 但服務以 root 執行、讀的是這裡。要自己複製過去：
+#     sudo install -o root -g root -m 600 ~/.cloudflared/<UUID>.json /etc/cloudflared/
 
 tunnel: TUNNEL_ID
 credentials-file: /etc/cloudflared/TUNNEL_ID.json

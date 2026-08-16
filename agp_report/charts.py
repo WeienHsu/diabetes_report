@@ -6,6 +6,8 @@ SVG 由 Python 直接輸出，列印銳利、自包含、檔案小。
 
 from html import escape
 
+from .metrics import band_of
+
 # ── 設計 token ────────────────────────────────────────────────────────────
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -80,6 +82,24 @@ def _band(pts_hi: list[tuple[float, float]], pts_lo: list[tuple[float, float]]) 
         f"L{_fmt(x)},{_fmt(y)}" for x, y in reversed(pts_lo)) + " Z"
 
 
+# ── 互動層 ────────────────────────────────────────────────────────────────
+# 十字準線、圓點與透明感應區。幾何參數以 data- 屬性傳給模板裡的 JS——
+# 版面常數只在這裡定義一份，JS 不必跟著複製 Y_MIN/Y_MAX 或邊界寬度。
+def _interactive(x0: float, x1: float, top: float, ph: float) -> str:
+    return (
+        f'<line class="xh-cross" x1="0" y1="{_fmt(top)}" x2="0" y2="{_fmt(top + ph)}" '
+        f'stroke="{INK}" stroke-width="0.8" opacity="0"/>'
+        f'<circle class="xh-dot" r="3.2" fill="{INK}" opacity="0"/>'
+        f'<rect class="xh-hit" x="{_fmt(x0)}" y="{_fmt(top)}" width="{_fmt(x1 - x0)}" '
+        f'height="{_fmt(ph)}" fill="transparent"/>')
+
+
+def _xh_attrs(kind: str, x0: float, x1: float, top: float, ph: float, index: int = 0) -> str:
+    return (f'class="xh" data-xh="{kind}" data-i="{index}" data-x0="{_fmt(x0)}" '
+            f'data-x1="{_fmt(x1)}" data-top="{_fmt(top)}" data-ph="{_fmt(ph)}" '
+            f'data-ymin="{Y_MIN}" data-ymax="{Y_MAX}"')
+
+
 def _grid_and_axis(left: float, top: float, w: float, h: float,
                    x_ticks: list[tuple[float, str]]) -> str:
     """共用的血糖 y 軸格線 + 目標帶 + x 軸刻度。"""
@@ -123,12 +143,14 @@ def agp_curve(agp: list[dict], width: int = 700, height: int = 210) -> str:
     ticks = [(left + w * m / 1440, f"{m // 60:02d}:00") for m in range(0, 1441, 180)]
     return (
         f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
+        f'{_xh_attrs("agp", left, left + w, top, h)} '
         f'role="img" aria-label="24 小時血糖百分位曲線">'
         + _grid_and_axis(left, top, w, h, ticks)
         + f'<path d="{_band(closed("p95"), closed("p5"))}" fill="{INK_2}" opacity="0.13"/>'
         + f'<path d="{_band(closed("p75"), closed("p25"))}" fill="{INK_2}" opacity="0.26"/>'
         + f'<path d="{_path(closed("p50"))}" fill="none" stroke="{INK}" '
           f'stroke-width="2" stroke-linejoin="round"/>'
+        + _interactive(left, left + w, top, h)
         + '</svg>'
     )
 
@@ -252,4 +274,73 @@ def meal_curve(response, width: int = 320, height: int = 128) -> str:
                    f'text-anchor="middle" font-size="10" font-weight="600" fill="{INK}">'
                    f'{response.peak:.0f}</text>')
     out.append('</svg>')
+    return "".join(out)
+
+
+# ── 每日詳圖 ──────────────────────────────────────────────────────────────
+DETAIL_LABEL_W = 78      # 左側標籤欄，與下方每小時表格的第一欄同寬才對得齊
+DETAIL_H = 84
+SCAN_COLOR = "#2a78d6"   # 洞察頁配色的藍，與注射的紫可區分
+BOLUS_COLOR = "#8e2b6b"
+
+
+def daily_detail(detail, width: int = 710, index: int = 0) -> str:
+    """單日全寬曲線：依分區上色、疊上注射時刻與掃描點。
+
+    與 daily_grid 的差別是這裡是主角而非縮圖——有座標軸、有標記，
+    看得出「幾點打了幾單位、之後血糖怎麼走」。
+    """
+    plot_w = width - DETAIL_LABEL_W
+    slots = detail.slots
+
+    def x(minute: float) -> float:
+        return DETAIL_LABEL_W + plot_w * minute / 1440
+
+    def y(value: float) -> float:
+        return _y(value, 0, DETAIL_H)
+
+    out = [f'<svg viewBox="0 0 {width} {DETAIL_H}" width="{width}" height="{DETAIL_H}" '
+           f'{_xh_attrs("day", DETAIL_LABEL_W, width, 0, DETAIL_H, index)} '
+           f'role="img" aria-label="{escape(detail.day.isoformat())} 血糖曲線">']
+
+    out.append(f'<rect x="{DETAIL_LABEL_W}" y="{_fmt(y(TARGET_HI))}" width="{_fmt(plot_w)}" '
+               f'height="{_fmt(y(TARGET_LO) - y(TARGET_HI))}" '
+               f'fill="{BAND_COLOR["target"]}" opacity="0.08"/>')
+    for hour in range(0, 25, 2):
+        out.append(f'<line x1="{_fmt(x(hour * 60))}" y1="0" x2="{_fmt(x(hour * 60))}" '
+                   f'y2="{DETAIL_H}" stroke="{GRID}" stroke-width="0.5" stroke-dasharray="2 3"/>')
+    for value in (70, 180, 350):
+        out.append(f'<line x1="{DETAIL_LABEL_W}" y1="{_fmt(y(value))}" x2="{width}" '
+                   f'y2="{_fmt(y(value))}" stroke="{AXIS}" stroke-width="0.5"/>')
+        out.append(f'<text x="{DETAIL_LABEL_W - 4}" y="{_fmt(y(value) + 3)}" font-size="7.5" '
+                   f'fill="{MUTED}" text-anchor="end">{value}</text>')
+
+    # 逐段上色。相鄰兩格都有值才連——感測器脫落數小時後回來，直接連起來
+    # 會描出一條實際不存在的平緩曲線。
+    for i in range(len(slots) - 1):
+        a, b = slots[i], slots[i + 1]
+        if a is None or b is None:
+            continue
+        out.append(
+            f'<line x1="{_fmt(x(i * 15))}" y1="{_fmt(y(a))}" '
+            f'x2="{_fmt(x((i + 1) * 15))}" y2="{_fmt(y(b))}" '
+            f'stroke="{BAND_COLOR[band_of(b)]}" stroke-width="1.7" stroke-linecap="round"/>')
+
+    for minute in detail.scans:
+        value = slots[min(minute // 15, len(slots) - 1)]
+        if value is None:
+            continue
+        out.append(f'<circle cx="{_fmt(x(minute))}" cy="{_fmt(y(value))}" r="2.4" '
+                   f'fill="{SURFACE}" stroke="{SCAN_COLOR}" stroke-width="1"/>')
+
+    for minute, _units in detail.insulin:
+        value = slots[min(minute // 15, len(slots) - 1)]
+        top = (y(value) if value is not None else y(TARGET_HI)) - 10
+        out.append(f'<line x1="{_fmt(x(minute))}" y1="{_fmt(top)}" x2="{_fmt(x(minute))}" '
+                   f'y2="{_fmt(top + 6)}" stroke="{BOLUS_COLOR}" stroke-width="1.6"/>')
+        out.append(f'<circle cx="{_fmt(x(minute))}" cy="{_fmt(top - 1.5)}" r="1.9" '
+                   f'fill="{BOLUS_COLOR}"/>')
+
+    out.append(_interactive(DETAIL_LABEL_W, width, 0, DETAIL_H))
+    out.append("</svg>")
     return "".join(out)
