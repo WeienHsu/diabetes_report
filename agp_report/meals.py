@@ -12,8 +12,8 @@ from .parse_food import Meal
 BEFORE_MIN = 30    # 餐前納入視窗
 AFTER_MIN = 240    # 餐後追蹤 4 小時
 BASELINE_MIN = 20  # 餐前基準值的容許回溯範圍
-BOLUS_BEFORE_MIN = 60  # 注射視為屬於這一餐的最早時間
-BOLUS_AFTER_MIN = 30   # 注射視為屬於這一餐的最晚時間
+BOLUS_BEFORE_MIN = 60  # 注射視為屬於這一餐的最早時間（相對第一筆進食）
+BOLUS_AFTER_MIN = 30   # 注射視為屬於這一餐的最晚時間（相對最後一筆進食）
 
 
 @dataclass
@@ -25,6 +25,7 @@ class MealResponse:
     peak_min: int | None
     auc: float                          # 基準線以上面積（mg/dL·分鐘）
     bolus_units: float
+    bolus_count: int                    # 幾劑加總而來；>1 時卡片會標明
     prebolus_min: int | None            # 進食前多久注射；負值代表餐後才打
     enough_data: bool
     svg: str = ""                       # 由 charts 填入
@@ -52,9 +53,13 @@ def analyse(meal: Meal, historic: list[tuple], insulin: list[tuple]) -> MealResp
     window = [(int((t - meal.when).total_seconds() // 60), v)
               for t, v in historic if lo <= t <= hi]
 
+    # 視窗綁在整個進食場合的跨距上，不是只綁起始點。合併的餐次（例如晚餐
+    # 20:05 併入 20:30 的點心）裡，第二份食物的針通常是「吃的時候才打」，
+    # 若窗尾仍以起始時間為準，那一劑會落在窗外、完全不算也不提示。
+    # 單筆餐次時 ends == when，行為與先前完全相同。
     doses = [(t, u) for t, u in insulin
              if meal.when - timedelta(minutes=BOLUS_BEFORE_MIN) <= t
-             <= meal.when + timedelta(minutes=BOLUS_AFTER_MIN)]
+             <= meal.ends + timedelta(minutes=BOLUS_AFTER_MIN)]
     bolus_units = sum(u for _, u in doses)
     prebolus = int((meal.when - min(t for t, _ in doses)).total_seconds() // 60) if doses else None
 
@@ -78,7 +83,8 @@ def analyse(meal: Meal, historic: list[tuple], insulin: list[tuple]) -> MealResp
 
     return MealResponse(
         meal=meal, curve=window, baseline=baseline, peak=peak, peak_min=peak_min,
-        auc=auc, bolus_units=bolus_units, prebolus_min=prebolus, enough_data=enough,
+        auc=auc, bolus_units=bolus_units, bolus_count=len(doses),
+        prebolus_min=prebolus, enough_data=enough,
     )
 
 
