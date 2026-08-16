@@ -7,6 +7,14 @@ dependencies = [
     "jinja2>=3.1",
 ]
 
+# CLI 只需要 Jinja2。web 介面才需要這一組——18MB 的 multipart 上傳不該自己解析，
+# 而 cgi 模組在 3.13 已移除、3.12 已棄用。兩者都是純 Python，ARM64 無編譯問題。
+[project.optional-dependencies]
+web = [
+    "flask>=3.0",
+    "gunicorn>=21.2",
+]
+
 [project.scripts]
 agp-report = "agp_report.__main__:main"
 
@@ -15,4 +23,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agp_report"]
+packages = ["agp_report", "web"]

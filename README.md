@@ -122,6 +122,86 @@ uv run agp-report --glucose data/glucose.csv --out out/僅血糖.html
 
 ---
 
+## 線上版
+
+網頁介面在 `web/`，跑在 Pi 上、透過 Cloudflare Tunnel 對外，網址
+`https://cgm.whtwbrown.com`。上傳兩份 CSV 就直接讀報告、一鍵下載 PDF，
+不需要 SSH 也不需要指令列。
+
+```bash
+uv sync --extra web                       # 裝 flask 與 gunicorn
+uv run gunicorn -w 2 -b 127.0.0.1:8090 -t 180 web.app:app   # 本機試跑
+```
+
+線上版與 CLI 共用同一個 `build_report()`，產出的報告本體逐位元組相同，
+只多一條列印時會隱藏的工具列。PDF 是伺服器端 headless chromium 吃
+`file://` 轉的——與人工 Ctrl+P 走同一條 `@media print` 樣式。
+
+**資料存放**：`var/uploads/<id>/` 與 `var/reports/<id>/`，權限 700，已列入
+`.gitignore`。目前設定為全部保留，**尚未決定保留期限**——在決定之前，
+Pi 上會持續累積完整的健康資料檔。
+
+### 部署步驟
+
+**1. 需要 root 的部分**（sudo 需要密碼，無法代跑）
+
+```bash
+cd ~/weien/diabetes_report
+uv sync --extra web
+sudo bash deploy/setup-root.sh
+```
+
+腳本會裝 cloudflared、安裝並啟用 systemd 服務、確認 `var/` 權限，可重複執行。
+
+**2. 建立 Tunnel**（需要你的 Cloudflare 帳號）
+
+```bash
+cloudflared tunnel login          # 會給一個網址，用瀏覽器授權 whtwbrown.com
+cloudflared tunnel create cgm     # 記下輸出的 UUID
+sudo cp deploy/cloudflared-config.yml /etc/cloudflared/config.yml
+sudo nano /etc/cloudflared/config.yml   # 把兩處 TUNNEL_ID 換成那組 UUID
+sudo chmod 600 /etc/cloudflared/*.json  # 憑證檔
+cloudflared tunnel route dns cgm cgm.whtwbrown.com
+sudo cloudflared service install
+sudo systemctl restart cloudflared
+```
+
+> `route dns` 會自動建立一筆**橘雲（proxied）的 CNAME**。這與
+> `lala_dashboard` 指向 Vercel 那筆「必須灰雲 DNS only」的規則**相反**，
+> 兩筆記錄在同一個 zone 裡，不要照抄。
+
+**3. 加上認證**（Cloudflare 儀表板，不能用指令）
+
+Zero Trust → Access → Applications → Add an application → Self-hosted
+
+| 欄位 | 值 |
+|---|---|
+| Application name | `血糖回診報告` |
+| Session duration | 依習慣，建議 1 週 |
+| Public hostname | `cgm.whtwbrown.com` |
+| Policy name | `只有我` |
+| Action | Allow |
+| Include | Emails → 你的信箱 |
+
+登入方式在 Settings → Authentication，預設的 **One-time PIN** 就是 email
+一次性驗證碼，不需要額外設定 identity provider。
+
+**沒做這一步之前，網址是完全公開的。**
+
+### 驗收
+
+```bash
+systemctl status diabetes-report cloudflared      # 兩個都要 active
+
+# 區網直連應該要失敗——確認沒有繞過 Access 的路徑
+curl -m 3 http://$(hostname -I | awk '{print $1}'):8090/
+```
+
+最後用手機關掉 Wi-Fi、走行動網路開 `https://cgm.whtwbrown.com`：
+應該被 Access 擋下要求驗證，通過後才看得到上傳頁。
+
+---
+
 ## 開發
 
 ```bash
@@ -138,7 +218,11 @@ metrics.py       AGP 指標：涵蓋率、GMI、CV、五區間佔比、24h 百�
                  低血糖事件、每 2 小時時段統計、每日摘要
 meals.py         餐次 × 血糖軌跡 × 注射 → 餐後反應
 charts.py        純 SVG 圖表產生器
-__main__.py      CLI 與報告組裝
+__main__.py      build_report() 報告組裝，與其上的 CLI 包裝
+
+web/app.py       Flask：上傳、產生、閱讀、下載 PDF、歷史清單
+web/pdf.py       headless chromium 轉 A4 PDF
+deploy/          systemd unit、cloudflared 設定範本、setup-root.sh
 ```
 
 ---
