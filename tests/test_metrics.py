@@ -134,5 +134,97 @@ class TestMealClustering(unittest.TestCase):
         self.assertEqual(parse_food.parse(path)[0].label, "午餐")
 
 
+class TestHypoEvents(unittest.TestCase):
+    def test_fourteen_minutes_is_not_an_event(self):
+        # 兩筆間隔 15 分鐘才構成 15 分鐘，單筆低讀數跨度是 0
+        self.assertEqual(metrics.hypo_events(series([60], step_min=15)), [])
+
+    def test_fifteen_minutes_is_an_event(self):
+        got = metrics.hypo_events(series([60, 65]))
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0].minutes, 15)
+        self.assertEqual(got[0].nadir, 60)
+
+    def test_a_single_recovery_splits_one_run_into_two(self):
+        # 中間回升到 70 以上就斷開；兩段各自要夠長才算數
+        got = metrics.hypo_events(series([60, 65, 120, 55, 50, 68]))
+        self.assertEqual([e.minutes for e in got], [15, 30])
+        self.assertEqual([e.nadir for e in got], [60, 50])
+
+    def test_sensor_gap_does_not_merge_two_events(self):
+        # 貼片脫落數小時後回來，前後都偏低——不可捏造成一次橫跨數小時的事件
+        early = series([60, 62], start=datetime(2026, 1, 1, 3, 0))
+        late = series([58, 56], start=datetime(2026, 1, 1, 9, 0))
+        got = metrics.hypo_events(early + late)
+        self.assertEqual(len(got), 2)
+        self.assertEqual([e.minutes for e in got], [15, 15])
+
+    def test_boundary_seventy_is_not_low(self):
+        self.assertEqual(metrics.hypo_events(series([70, 70, 70])), [])
+
+    def test_bolus_before_counts_only_the_preceding_four_hours(self):
+        readings = series([60, 62], start=datetime(2026, 1, 1, 12, 0))
+        insulin = [
+            (datetime(2026, 1, 1, 7, 30), 9.0),   # 4.5 小時前，太早
+            (datetime(2026, 1, 1, 10, 0), 6.0),   # 2 小時前，算
+            (datetime(2026, 1, 1, 12, 30), 3.0),  # 事件開始後，不算
+        ]
+        self.assertEqual(metrics.hypo_events(readings, insulin)[0].bolus_before, 6.0)
+
+
+class TestTimeBlocks(unittest.TestCase):
+    def test_block_boundaries_are_half_open(self):
+        # 14:00 屬 14-16，16:00 屬 16-18
+        readings = [(datetime(2026, 1, 1, 14, 0), 100.0),
+                    (datetime(2026, 1, 1, 16, 0), 300.0)]
+        got = {b.hour: b for b in metrics.time_blocks(readings, [], [], days=1)}
+        self.assertEqual(got[14].mean, 100.0)
+        self.assertEqual(got[16].mean, 300.0)
+
+    def test_insulin_is_averaged_over_the_period(self):
+        readings = [(datetime(2026, 1, d, 8, 0), 150.0) for d in (1, 2)]
+        insulin = [(datetime(2026, 1, 1, 8, 30), 10.0), (datetime(2026, 1, 2, 9, 0), 6.0)]
+        block = metrics.time_blocks(readings, insulin, [], days=2)[0]
+        self.assertEqual(block.hour, 8)
+        self.assertEqual(block.insulin_per_day, 8.0)   # (10 + 6) / 2 天
+
+    def test_empty_blocks_are_omitted_not_zeroed(self):
+        # 沒有讀數的時段留白，不能報 0 —— 0 會被讀成「血糖是 0」
+        got = metrics.time_blocks([(datetime(2026, 1, 1, 3, 0), 90.0)], [], [], days=1)
+        self.assertEqual([b.hour for b in got], [2])
+
+
+class TestDailySummary(unittest.TestCase):
+    def test_one_row_per_day_with_weekday(self):
+        readings = (series([100, 200], start=datetime(2026, 1, 1, 8, 0))
+                    + series([80, 90], start=datetime(2026, 1, 2, 8, 0)))
+        got = metrics.daily_summary(readings, [], [])
+        self.assertEqual(len(got), 2)
+        self.assertEqual(got[0].mean, 150.0)
+        self.assertEqual(got[0].highest, 200)
+        self.assertEqual(got[1].lowest, 80)
+        self.assertEqual(got[0].weekday, "四")   # 2026-01-01 是週四
+
+    def test_boundary_days_are_marked_partial(self):
+        # 期間 08:00 起、次日 10:00 止 —— 兩天都不是完整一日，數值不可與整日相比
+        readings = (series([150] * 4, start=datetime(2026, 1, 1, 8, 0))
+                    + series([150] * 4, start=datetime(2026, 1, 2, 9, 0)))
+        self.assertEqual([r.partial for r in metrics.daily_summary(readings, [], [])],
+                         [True, True])
+
+    def test_a_full_day_is_not_partial(self):
+        readings = series([150] * metrics.BINS_PER_DAY, start=datetime(2026, 1, 1, 0, 0))
+        self.assertEqual([r.partial for r in metrics.daily_summary(readings, [], [])], [False])
+
+    def test_hypo_events_are_attributed_to_their_start_day(self):
+        # 23:50 開始、跨過午夜的事件算前一天
+        readings = series([60, 62, 64], start=datetime(2026, 1, 1, 23, 50))
+        events = metrics.hypo_events(readings)
+        self.assertEqual(len(events), 1)
+        got = {d.day.day: d.hypo_count for d in metrics.daily_summary(readings, [], events)}
+        self.assertEqual(got[1], 1)
+        self.assertEqual(got[2], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

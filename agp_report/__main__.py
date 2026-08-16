@@ -49,6 +49,9 @@ def _band_rows(band_pct: dict[str, float]) -> list[dict]:
             "hhmm": _hhmm(band_pct.get(key, 0.0)),
             "goal": goal_text,
             "ok": ok,
+            # 達標判定用的是累計分區（「低」比的是 <70 全體），與本列顯示的
+            # 單一分區佔比不同。不寫出來讀者會以為 1.3% 是直接跟 <4% 比。
+            "combined": actual if len(members) > 1 else None,
         })
     return rows
 
@@ -85,10 +88,12 @@ def main() -> None:
     m = metrics.compute(period, args.days)
 
     responses, skipped, drinks, food_start = [], 0, 0, "—"
+    block_meals: list[tuple[datetime, float]] = []
     if args.food:
         all_meals = parse_food.parse(args.food)
         if all_meals:
             food_start = all_meals[0].when.strftime("%Y-%m-%d")
+        block_meals = [(x.when, x.carbs) for x in all_meals if m.start <= x.when <= m.end]
         for r in meals.analyse_all(all_meals, libre.historic, libre.insulin):
             if not (m.start <= r.meal.when <= m.end):
                 continue
@@ -101,6 +106,11 @@ def main() -> None:
                 r.verdict = _verdict(r)
                 responses.append(r)
 
+    period_insulin = [(t, u) for t, u in libre.insulin if m.start <= t <= m.end]
+    events = metrics.hypo_events(period, period_insulin)
+    blocks = metrics.time_blocks(period, period_insulin, block_meals, args.days)
+    days_rows = metrics.daily_summary(period, period_insulin, events)
+
     env = Environment(
         loader=FileSystemLoader(Path(__file__).parent / "templates"),
         autoescape=select_autoescape(["html"]),
@@ -108,6 +118,14 @@ def main() -> None:
     html = env.get_template("report.html.j2").render(
         m=m,
         patient=libre.patient,
+        events=events,
+        blocks=blocks,
+        worst_block=max(blocks, key=lambda b: b.mean) if blocks else None,
+        band_tint=charts.BAND_TINT,
+        # 90 天會排出 91 列，把 P2 撐成三頁以上——與每日縮圖砍到 14 天同一個問題
+        days_rows=days_rows[-DAILY_PROFILE_DAYS:],
+        days_note=(f"僅列最近 {DAILY_PROFILE_DAYS} 天；時段統計與低血糖事件涵蓋完整 "
+                   f"{m.days} 天期間" if len(days_rows) > DAILY_PROFILE_DAYS else None),
         tir_svg=charts.tir_bar(m.band_pct, height=300),
         agp_svg=charts.agp_curve(m.agp),
         daily_svg=charts.daily_grid(m.daily[-DAILY_PROFILE_DAYS:]),
