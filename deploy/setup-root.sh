@@ -60,12 +60,14 @@ if [[ -f /etc/cloudflared/config.yml ]]; then
 else
     mkdir -p /etc/cloudflared
     echo "尚未設定。接下來請照 README「部署」章節做這幾步（需要你的 Cloudflare 帳號）："
-    echo "  cloudflared tunnel login"
-    echo "  cloudflared tunnel create cgm"
-    echo "  cp $PROJECT/deploy/cloudflared-config.yml /etc/cloudflared/config.yml"
-    echo "  # 編輯該檔，把 TUNNEL_ID 換成上一步產生的 UUID"
-    echo "  cloudflared tunnel route dns cgm cgm.whtwbrown.com"
-    echo "  cloudflared service install && systemctl restart cloudflared"
+    echo "  cloudflared tunnel login          # 不要加 sudo"
+    echo "  cloudflared tunnel create cgm     # 記下 UUID"
+    echo "  # create 把憑證寫在 ~/.cloudflared/，服務讀的是 /etc/cloudflared/，要複製過去："
+    echo "  sudo install -o root -g root -m 600 ~/.cloudflared/<UUID>.json /etc/cloudflared/"
+    echo "  sudo cp $PROJECT/deploy/cloudflared-config.yml /etc/cloudflared/config.yml"
+    echo "  # 編輯該檔，把兩處 TUNNEL_ID 換成那組 UUID"
+    echo "  cloudflared tunnel route dns cgm cgm.whtwbrown.com   # 不要加 sudo"
+    echo "  sudo cloudflared service install && sudo systemctl restart cloudflared"
 fi
 
 echo
