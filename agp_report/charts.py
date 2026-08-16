@@ -82,6 +82,24 @@ def _band(pts_hi: list[tuple[float, float]], pts_lo: list[tuple[float, float]]) 
         f"L{_fmt(x)},{_fmt(y)}" for x, y in reversed(pts_lo)) + " Z"
 
 
+# ── 互動層 ────────────────────────────────────────────────────────────────
+# 十字準線、圓點與透明感應區。幾何參數以 data- 屬性傳給模板裡的 JS——
+# 版面常數只在這裡定義一份，JS 不必跟著複製 Y_MIN/Y_MAX 或邊界寬度。
+def _interactive(x0: float, x1: float, top: float, ph: float) -> str:
+    return (
+        f'<line class="xh-cross" x1="0" y1="{_fmt(top)}" x2="0" y2="{_fmt(top + ph)}" '
+        f'stroke="{INK}" stroke-width="0.8" opacity="0"/>'
+        f'<circle class="xh-dot" r="3.2" fill="{INK}" opacity="0"/>'
+        f'<rect class="xh-hit" x="{_fmt(x0)}" y="{_fmt(top)}" width="{_fmt(x1 - x0)}" '
+        f'height="{_fmt(ph)}" fill="transparent"/>')
+
+
+def _xh_attrs(kind: str, x0: float, x1: float, top: float, ph: float, index: int = 0) -> str:
+    return (f'class="xh" data-xh="{kind}" data-i="{index}" data-x0="{_fmt(x0)}" '
+            f'data-x1="{_fmt(x1)}" data-top="{_fmt(top)}" data-ph="{_fmt(ph)}" '
+            f'data-ymin="{Y_MIN}" data-ymax="{Y_MAX}"')
+
+
 def _grid_and_axis(left: float, top: float, w: float, h: float,
                    x_ticks: list[tuple[float, str]]) -> str:
     """共用的血糖 y 軸格線 + 目標帶 + x 軸刻度。"""
@@ -125,12 +143,14 @@ def agp_curve(agp: list[dict], width: int = 700, height: int = 210) -> str:
     ticks = [(left + w * m / 1440, f"{m // 60:02d}:00") for m in range(0, 1441, 180)]
     return (
         f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
+        f'{_xh_attrs("agp", left, left + w, top, h)} '
         f'role="img" aria-label="24 小時血糖百分位曲線">'
         + _grid_and_axis(left, top, w, h, ticks)
         + f'<path d="{_band(closed("p95"), closed("p5"))}" fill="{INK_2}" opacity="0.13"/>'
         + f'<path d="{_band(closed("p75"), closed("p25"))}" fill="{INK_2}" opacity="0.26"/>'
         + f'<path d="{_path(closed("p50"))}" fill="none" stroke="{INK}" '
           f'stroke-width="2" stroke-linejoin="round"/>'
+        + _interactive(left, left + w, top, h)
         + '</svg>'
     )
 
@@ -264,7 +284,7 @@ SCAN_COLOR = "#2a78d6"   # 洞察頁配色的藍，與注射的紫可區分
 BOLUS_COLOR = "#8e2b6b"
 
 
-def daily_detail(detail, width: int = 710) -> str:
+def daily_detail(detail, width: int = 710, index: int = 0) -> str:
     """單日全寬曲線：依分區上色、疊上注射時刻與掃描點。
 
     與 daily_grid 的差別是這裡是主角而非縮圖——有座標軸、有標記，
@@ -280,6 +300,7 @@ def daily_detail(detail, width: int = 710) -> str:
         return _y(value, 0, DETAIL_H)
 
     out = [f'<svg viewBox="0 0 {width} {DETAIL_H}" width="{width}" height="{DETAIL_H}" '
+           f'{_xh_attrs("day", DETAIL_LABEL_W, width, 0, DETAIL_H, index)} '
            f'role="img" aria-label="{escape(detail.day.isoformat())} 血糖曲線">']
 
     out.append(f'<rect x="{DETAIL_LABEL_W}" y="{_fmt(y(TARGET_HI))}" width="{_fmt(plot_w)}" '
@@ -320,5 +341,6 @@ def daily_detail(detail, width: int = 710) -> str:
         out.append(f'<circle cx="{_fmt(x(minute))}" cy="{_fmt(top - 1.5)}" r="1.9" '
                    f'fill="{BOLUS_COLOR}"/>')
 
+    out.append(_interactive(DETAIL_LABEL_W, width, 0, DETAIL_H))
     out.append("</svg>")
     return "".join(out)
