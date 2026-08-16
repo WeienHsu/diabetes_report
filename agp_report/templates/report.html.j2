@@ -27,6 +27,11 @@
   /* 餐食頁的卡片數會隨飲食紀錄增加，本來就該自然跨頁；固定成一頁反而會擠爆。
      只要求卡片本身不被切斷，區段標題不落在頁尾。 */
   .page.flow { min-height: 0; }
+
+  /* 窄螢幕替代版面，預設不顯示；桌機與列印都走原本的表格 */
+  .blocks-list { display: none; }
+
+  /* ── 列印：A4 行為完全維持原樣，本區塊是這份報告的原始設計 ──────────── */
   @media print {
     body { background: #fff; }
     .page { margin: 0; width: auto; min-height: 0; page-break-after: always; }
@@ -35,7 +40,37 @@
     tr { page-break-inside: avoid; break-inside: avoid; }
     thead { display: table-header-group; }
     h2, h3 { page-break-after: avoid; break-after: avoid; }
+    .toolbar { display: none; }
   }
+
+  /* ── 螢幕：同一份 HTML 的另一套版面。捲動順序與紙本完全一致 ────────── */
+  @media screen {
+    .toolbar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 9px 16px; background: var(--surface);
+      border-bottom: 1px solid var(--ink); margin-bottom: 8mm;
+    }
+    .toolbar .meta { font-size: 10.5px; color: var(--ink2); }
+    .toolbar .meta b { font-size: 12px; }
+    .toolbar .acts { display: flex; gap: 8px; flex: none; }
+    .toolbar a {
+      font-size: 11px; font-weight: 600; padding: 6px 12px; text-decoration: none;
+      background: var(--ink); color: #fff; border: 1px solid var(--ink);
+    }
+    .toolbar a.ghost { background: transparent; color: var(--ink); border-color: var(--axis); }
+    .toolbar a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  }
+
+  .brow {
+    display: flex; align-items: baseline; gap: 10px;
+    border-bottom: 1px solid var(--grid); padding: 5px 0;
+  }
+  .brow .t { font-size: 10px; color: var(--muted); width: 42px; flex: none;
+             font-variant-numeric: tabular-nums; }
+  .brow .m { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .brow .r { font-size: 9.5px; color: var(--ink2); margin-left: auto;
+             font-variant-numeric: tabular-nums; }
 
   h1 { font-size: 17px; margin: 0; letter-spacing: -0.2px; }
   h2 { font-size: 13px; margin: 0 0 6px; letter-spacing: 0.02em; }
@@ -93,9 +128,46 @@
 
   footer { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--grid);
            font-size: 9.5px; color: var(--muted); }
+
+  /* ── 窄螢幕覆寫必須放在所有元件規則之後 ────────────────────────────────
+     媒體查詢不增加優先權，同權重下由順序決定。寫在前面的話，
+     .cols 與 .meals 的 grid-template-columns 會被後面的基礎規則蓋回去。 */
+
+  /* SVG 都已內含 viewBox，縮放純粹是 CSS 的事——charts.py 不需要任何改動 */
+  @media screen and (max-width: 860px) {
+    .page { width: auto; max-width: 100%; min-height: 0; padding: 0 12px 6mm; }
+    svg { max-width: 100%; height: auto; }
+    .cols { grid-template-columns: 1fr; }
+    .meals { grid-template-columns: 1fr; }
+    .toolbar { margin-bottom: 4mm; }
+  }
+
+  /* 12 欄的時段表在手機上必然不可讀，改用依平均值排序的列式；
+     完整的 12 欄仍保留在列印版，等價檢視不因螢幕縮減而失效 */
+  @media screen and (max-width: 600px) {
+    .blocks { display: none; }
+    .blocks-list { display: block; }
+    .drop-narrow { display: none; }
+    .toolbar { flex-wrap: wrap; }
+    header { flex-wrap: wrap; gap: 6px; }
+  }
 </style>
 </head>
 <body>
+
+{# 只有 web 層會傳 toolbar；CLI 產出的檔案沒有這一段。列印時一律隱藏，
+   所以同一份 HTML 既是線上頁面、也是轉 PDF 的來源。 #}
+{% if toolbar %}
+<div class="toolbar">
+  <div class="meta tnum">
+    <b>{{ m.start.strftime('%Y-%m-%d') }} – {{ m.end.strftime('%Y-%m-%d') }}</b>　{{ m.days }} 天　·　涵蓋率 {{ '%.0f'|format(m.coverage_pct) }}%　·　TIR <b>{{ '%.1f'|format(m.band_pct['target']) }}%</b>
+  </div>
+  <div class="acts">
+    <a class="ghost" href="{{ toolbar.new }}">新報告</a>
+    <a href="{{ toolbar.pdf }}">下載 PDF</a>
+  </div>
+</div>
+{% endif %}
 
 {# ── P1 醫師版 AGP：完全遵循國際共識版面，讓醫師秒讀 ───────────────── #}
 <div class="page">
@@ -145,7 +217,7 @@
       <h3 style="margin-top:12px">各分區時間佔比</h3>
       <table>
         <thead><tr>
-          <th>分區</th><th class="n">佔比</th><th class="n">每日約</th>
+          <th>分區</th><th class="n">佔比</th><th class="n drop-narrow">每日約</th>
           <th class="n">判定值</th><th class="n">國際目標</th><th>達標</th>
         </tr></thead>
         <tbody>
@@ -153,7 +225,7 @@
           <tr>
             <td><span class="swatch" style="background:{{ row.color }}"></span>{{ row.label }}</td>
             <td class="n">{{ '%.1f'|format(row.pct) }}%</td>
-            <td class="n muted">{{ row.hhmm }}</td>
+            <td class="n muted drop-narrow">{{ row.hhmm }}</td>
             <td class="n">{% if row.combined is not none %}<b>{{ '%.1f'|format(row.combined) }}%</b>{% else %}<span class="muted">—</span>{% endif %}</td>
             <td class="n muted">{{ row.goal }}%</td>
             <td class="{{ 'hit' if row.ok else 'miss' }}">{{ '✓' if row.ok else '✗' }}</td>
@@ -259,6 +331,18 @@
         {% endif %}
       </tbody>
     </table>
+
+    {# 手機版：同一批數字改依平均值由高到低排，「哪個時段最糟」正是這頁的目的 #}
+    <div class="blocks-list">
+      {% for b in blocks_ranked %}
+      <div class="brow" style="background:{{ band_tint[b.band] }}">
+        <span class="t">{{ b.label }}</span>
+        <span class="m">{{ '%.0f'|format(b.mean) }}</span>
+        <span class="r">TIR {{ '%.0f'|format(b.tir_pct) }}%　&gt;250 {{ '%.0f'|format(b.very_high_pct) }}%　速效 {{ '%.1f'|format(b.insulin_per_day) }}u</span>
+      </div>
+      {% endfor %}
+    </div>
+
     <div class="sub" style="margin-top:5px">
       本期間平均值最高的是 <b>{{ worst_block.label }} 時</b>：平均 {{ '%.0f'|format(worst_block.mean) }} mg/dL、
       目標內僅 {{ '%.0f'|format(worst_block.tir_pct) }}%、{{ '%.0f'|format(worst_block.very_high_pct) }}% 的時間超過 250。
