@@ -56,9 +56,10 @@ class TestPercentile(unittest.TestCase):
         self.assertAlmostEqual(metrics._percentile([7], 0.5), 7.0)
 
 
-def _meal(when, carbs, label=""):
-    return parse_food.Meal(when=when, label=label, items=[parse_food.Item(
-        brand="", name="x", serving="", carbs=carbs, protein=0, fat=0, kcal=carbs * 4)])
+def _meal(when, carbs, label="午餐"):
+    return parse_food.Meal(when=when, items=[parse_food.Item(
+        label=label, brand="", name="x", serving="", carbs=carbs, protein=0,
+        fat=0, kcal=carbs * 4)])
 
 
 class TestMealResponse(unittest.TestCase):
@@ -94,6 +95,42 @@ class TestMealResponse(unittest.TestCase):
         self.assertFalse(r.enough_data)
 
 
+class TestBolusWindow(unittest.TestCase):
+    """注射視窗綁在整個進食場合的跨距上。"""
+
+    START = datetime(2026, 1, 1, 20, 5)
+
+    def _analyse(self, meal, dose_offsets):
+        historic = [(self.START + timedelta(minutes=i * 15), 150.0) for i in range(-2, 17)]
+        insulin = [(self.START + timedelta(minutes=d), u) for d, u in dose_offsets]
+        return meals.analyse(meal, historic, insulin)
+
+    def _merged(self, span_min):
+        """20:05 起的進食場合，最後一筆在 span_min 分鐘後。"""
+        item = parse_food.Item(label="晚餐", brand="", name="x", serving="",
+                               carbs=40, protein=0, fat=0, kcal=200)
+        return parse_food.Meal(when=self.START,
+                               last=self.START + timedelta(minutes=span_min),
+                               items=[item, item])
+
+    def test_second_dose_of_a_merged_meal_is_counted(self):
+        # 點心在 T+25 被併入，它的針在 T+40 —— 吃的時候才打是常態。
+        # 窗尾若仍以起始時間為準，這一劑會完全消失。
+        r = self._analyse(self._merged(25), [(0, 8), (40, 4)])
+        self.assertEqual(r.bolus_units, 12)
+        self.assertEqual(r.bolus_count, 2)
+
+    def test_single_row_meal_behaves_exactly_as_before(self):
+        # 未合併時 ends == when，窗尾仍是 +30 分
+        single = self._merged(0)
+        self.assertEqual(self._analyse(single, [(0, 8), (30, 4)]).bolus_units, 12)
+        self.assertEqual(self._analyse(single, [(0, 8), (31, 4)]).bolus_units, 8)
+
+    def test_window_does_not_extend_beyond_the_last_entry(self):
+        # 跨距 25 分 → 窗尾 T+55；T+56 的針不算
+        self.assertEqual(self._analyse(self._merged(25), [(56, 4)]).bolus_units, 0)
+
+
 class TestMealClustering(unittest.TestCase):
     """同一頓飯若被拆成多餐，會共用同一劑胰島素並重複計算同一個峰值。"""
 
@@ -125,6 +162,29 @@ class TestMealClustering(unittest.TestCase):
             "2026-01-01 12:31,點心,B,蛋糕,1塊,300,3,12,45,\n",   # 超過 30 分鐘
         ])
         self.assertEqual(len(parse_food.parse(path)), 2)
+
+    def test_merged_meal_keeps_each_source_label(self):
+        # 20:05 晚餐與 20:30 點心血糖反應分不開，必須合併；但卡片要分行
+        # 標出哪些品項屬於哪一餐別，否則整張卡標「晚餐」卻含使用者記為
+        # 「點心」的碳水。
+        path = self._write([
+            "2026-01-01 20:05,晚餐,A,牛肉堡,1個,535,32,28,38.5,\n",
+            "2026-01-01 20:05,晚餐,A,雞腿,2塊,370,41,21,3,\n",
+            "2026-01-01 20:30,點心,A,香芋派,1個,231,2,11,30.7,\n",
+        ])
+        got = parse_food.parse(path)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0].label, "晚餐＋點心")
+        self.assertEqual([(lab, [i.name for i in its]) for lab, its in got[0].groups],
+                         [("晚餐", ["牛肉堡", "雞腿"]), ("點心", ["香芋派"])])
+        self.assertAlmostEqual(got[0].carbs, 72.2, places=3)
+
+    def test_same_label_rows_stay_in_one_group(self):
+        path = self._write([
+            "2026-01-01 12:00,午餐,A,主菜,1份,300,20,10,40,\n",
+            "2026-01-01 12:05,午餐,B,白飯,200g,280,5,1,62,\n",
+        ])
+        self.assertEqual([lab for lab, _ in parse_food.parse(path)[0].groups], ["午餐"])
 
     def test_unspecified_label_yields_to_a_real_one(self):
         path = self._write([

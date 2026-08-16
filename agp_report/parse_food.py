@@ -18,6 +18,7 @@ CLUSTER_WINDOW = timedelta(minutes=30)
 
 @dataclass
 class Item:
+    label: str          # 該列原本的餐別，合併後仍要能分行顯示
     brand: str
     name: str
     serving: str
@@ -29,9 +30,13 @@ class Item:
 
 @dataclass
 class Meal:
-    when: datetime
-    label: str                       # 餐別
+    when: datetime                   # 第一筆進食紀錄
+    last: datetime | None = None     # 最後一筆；合併餐次才會與 when 不同
     items: list[Item] = field(default_factory=list)
+
+    @property
+    def ends(self) -> datetime:
+        return self.last or self.when
 
     @property
     def carbs(self) -> float:
@@ -50,6 +55,32 @@ class Meal:
         return sum(i.kcal for i in self.items)
 
     @property
+    def groups(self) -> list[tuple[str, list[Item]]]:
+        """依原始餐別分組，順序照時間。
+
+        20:05 的晚餐與 20:30 的點心會合併成同一次進食（血糖反應分不開），
+        但卡片仍要分行標出哪些品項屬於哪一餐別——否則整張卡標著「晚餐」，
+        裡面卻有一半碳水來自使用者明確記為「點心」的東西。
+        """
+        out: list[tuple[str, list[Item]]] = []
+        for item in self.items:
+            label = item.label or "未指定"
+            if out and out[-1][0] == label:
+                out[-1][1].append(item)
+            else:
+                out.append((label, [item]))
+        return out
+
+    @property
+    def label(self) -> str:
+        """精簡場合，例如漲幅排行與每日詳圖的數值框。"""
+        names = []
+        for label, _items in self.groups:
+            if label and label != "未指定" and label not in names:
+                names.append(label)
+        return "＋".join(names) or "未指定"
+
+    @property
     def title(self) -> str:
         return "＋".join(i.name for i in self.items)
 
@@ -62,7 +93,7 @@ def _num(raw: str) -> float:
 
 
 def parse(path: str) -> list[Meal]:
-    entries: list[tuple[datetime, str, Item]] = []
+    entries: list[tuple[datetime, Item]] = []
     with open(path, encoding="utf-8-sig", newline="") as fh:
         for row in csv.DictReader(fh):
             raw = (row.get("日期時間") or "").strip()
@@ -70,7 +101,8 @@ def parse(path: str) -> list[Meal]:
                 when = datetime.strptime(raw, TIMESTAMP_FMT)
             except ValueError:
                 continue
-            entries.append((when, (row.get("餐別") or "").strip(), Item(
+            entries.append((when, Item(
+                label=(row.get("餐別") or "").strip(),
                 brand=(row.get("品牌") or "").strip(),
                 name=(row.get("產品名稱") or "").strip(),
                 serving=(row.get("攝取份量") or "").strip(),
@@ -81,12 +113,10 @@ def parse(path: str) -> list[Meal]:
             )))
 
     meals: list[Meal] = []
-    for when, label, item in sorted(entries, key=lambda e: e[0]):
+    for when, item in sorted(entries, key=lambda e: e[0]):
         if meals and when - meals[-1].when <= CLUSTER_WINDOW:
             meals[-1].items.append(item)
-            # 起始列常是「未指定」，後續列若有明確餐別就採用
-            if not meals[-1].label or meals[-1].label == "未指定":
-                meals[-1].label = label
+            meals[-1].last = when
         else:
-            meals.append(Meal(when=when, label=label, items=[item]))
+            meals.append(Meal(when=when, last=when, items=[item]))
     return meals
