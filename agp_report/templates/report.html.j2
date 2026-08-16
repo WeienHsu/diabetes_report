@@ -555,13 +555,23 @@
       <div class="sub">每餐後 4 小時追蹤，疊合注射劑量與三大營養素</div>
     </div>
     <div class="sub tnum" style="text-align:right">
-      可分析 {{ responses|length }} 餐<br>
-      飲食紀錄自 {{ food_start }} 起
+      可分析 {{ meal_total }} 餐<br>
+      飲食紀錄自 {{ food_start }} 起{% if meal_note %}<br><span class="muted">{{ meal_note }}</span>{% endif %}
     </div>
   </header><span class="toggle" aria-hidden="true"></span></summary><div class="sect-body">
 
   {% if thin_warning %}
   <section><div class="thin">{{ thin_warning }}</div></section>
+  {% endif %}
+
+  {% if risers %}
+  <section style="margin-bottom:10px">
+    <div class="sub">
+      本期間<b>漲幅最大的三餐</b>（自全部 {{ meal_total }} 餐中挑出，下方卡片仍依時間排序）：
+      {% for r in risers %}<span class="tnum">{{ r.meal.when.strftime('%m-%d') }}
+      {{ r.meal.label or '未分類' }} Δ+{{ '%.0f'|format(r.delta) }}</span>{% if not loop.last %}　·　{% endif %}{% endfor %}
+    </div>
+  </section>
   {% endif %}
 
   <section class="meals">
@@ -601,7 +611,7 @@
         <tr><td>血糖讀數（感測器歷史值）</td><td class="n tnum">{{ m.readings }} 筆</td></tr>
         <tr><td>感測器涵蓋率</td><td class="n tnum">{{ '%.1f'|format(m.coverage_pct) }}%{% if m.coverage_pct < 70 %}　<span class="miss">低於 AGP 建議的 70%</span>{% endif %}</td></tr>
         <tr><td>速效胰島素注射</td><td class="n tnum">{{ insulin_count }} 次・共 {{ '%.0f'|format(insulin_units) }} U</td></tr>
-        <tr><td>可分析餐次</td><td class="n tnum">{{ responses|length }} 餐{% if skipped %}・{{ skipped }} 餐餐後血糖資料不足{% endif %}{% if drinks %}・{{ drinks }} 筆無熱量飲品不列入{% endif %}</td></tr>
+        <tr><td>可分析餐次</td><td class="n tnum">{{ meal_total }} 餐{% if skipped %}・{{ skipped }} 餐餐後血糖資料不足{% endif %}{% if drinks %}・{{ drinks }} 筆無熱量飲品不列入{% endif %}</td></tr>
       </tbody>
     </table>
   </section>

@@ -101,7 +101,8 @@ class Summary:
 def build_report(glucose_path: str, food_path: str | None = None, days: int = 14,
                  toolbar: dict[str, str] | None = None,
                  detail_days: int = DAILY_DETAIL_DAYS,
-                 summary_days: int = DAILY_PROFILE_DAYS) -> tuple[str, Summary]:
+                 summary_days: int = DAILY_PROFILE_DAYS,
+                 meal_cards: int = 0) -> tuple[str, Summary]:
     """讀 CSV、算指標、組出單檔自包含 HTML。回傳 (html, summary)。
 
     toolbar 只有 web 層會給（{"pdf": ..., "new": ...}），列印時一律隱藏，
@@ -138,9 +139,17 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
             elif not r.enough_data:
                 skipped += 1
             else:
-                r.svg = charts.meal_curve(r)
-                r.verdict = _verdict(r)
                 responses.append(r)
+
+    # 卡片只列最近 N 餐，但樣本數的判定一律用真實總數——否則設了上限之後，
+    # 樣本不足的警語會在實際只有 12 餐時就消失，那是報告在騙人。
+    shown = responses[-meal_cards:] if meal_cards else responses
+    for r in shown:
+        r.svg = charts.meal_curve(r)
+        r.verdict = _verdict(r)
+    # 明確標示為挑選過的清單，讀者才知道自己在看什麼
+    risers = sorted((r for r in responses if r.rose and r.delta),
+                    key=lambda r: r.delta, reverse=True)[:3]
 
     period_insulin = [(t, u) for t, u in libre.insulin if m.start <= t <= m.end]
     events = metrics.hypo_events(period, period_insulin)
@@ -189,7 +198,11 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         daily_note=(f"僅顯示最近 {DAILY_PROFILE_DAYS} 天；上方各項指標仍涵蓋完整 "
                     f"{m.days} 天期間" if len(m.daily) > DAILY_PROFILE_DAYS else None),
         band_rows=_band_rows(m.band_pct),
-        responses=responses,
+        responses=shown,
+        meal_total=len(responses),
+        meal_note=(f"僅列最近 {len(shown)} 餐（期間內可分析 {len(responses)} 餐）"
+                   if len(shown) < len(responses) else None),
+        risers=risers,
         skipped=skipped,
         drinks=drinks,
         food_start=food_start,

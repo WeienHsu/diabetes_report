@@ -12,7 +12,8 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-DEFAULTS = {"detail_days": 7, "summary_days": 14, "retention_days": 0}
+DEFAULTS = {"detail_days": 7, "summary_days": 14, "retention_days": 0,
+            "meal_cards": 20}
 
 # 每個選項的預估總頁數，實測自 90 天分析期間。頁數與檔案大小是這個設定
 # 唯一的代價，標在選項旁邊才能讓人在「選的當下」就看見，而不是產完才發現。
@@ -21,6 +22,9 @@ DETAIL_COST = {7: "約 8 頁", 14: "約 9 頁", 21: "約 11 頁",
                28: "約 12 頁", 60: "約 17 頁・1.1MB", 90: "約 22 頁・1.7MB"}
 HEAVY_DETAIL = 60   # 這個以上要提醒手機載入會變慢
 SUMMARY_CHOICES = (7, 14, 30)
+# 0 = 不限。餐食卡片依時間排序取最近 N 張——排序取「漲幅最大」會系統性藏掉
+# 同一種食物反應正常的那幾次，讓「這道菜都很糟嗎」這個問題失去分母。
+MEAL_CHOICES = (10, 20, 40, 0)
 # 0 代表永久保留。刻意不提供「1 天」——手滑選到會在下一次清除時洗掉全部歷史。
 RETENTION_CHOICES = (0, 30, 90, 180, 365)
 
@@ -30,6 +34,7 @@ class Settings:
     detail_days: int = 7
     summary_days: int = 14
     retention_days: int = 0     # 0 = 永久保留
+    meal_cards: int = 20        # 0 = 不限
 
     @property
     def retention_label(self) -> str:

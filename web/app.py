@@ -79,6 +79,7 @@ def create():
             toolbar={"pdf": url_for("download", report_id=report_id),
                      "new": url_for("index")},
             detail_days=s.detail_days, summary_days=s.summary_days,
+            meal_cards=s.meal_cards,
         )
     except ReportError as exc:
         shutil.rmtree(upload_dir, ignore_errors=True)
@@ -156,11 +157,13 @@ def settings_save():
         summary_days=request.form.get("summary_days", type=int, default=current.summary_days),
         retention_days=request.form.get("retention_days", type=int,
                                         default=current.retention_days),
+        meal_cards=request.form.get("meal_cards", type=int, default=current.meal_cards),
     )
     # 只接受清單內的值——手打 URL 送進 detail_days=999 會排出 999 個全寬圖表
     if (picked.detail_days not in cfg.DETAIL_CHOICES
             or picked.summary_days not in cfg.SUMMARY_CHOICES
-            or picked.retention_days not in cfg.RETENTION_CHOICES):
+            or picked.retention_days not in cfg.RETENTION_CHOICES
+            or picked.meal_cards not in cfg.MEAL_CHOICES):
         abort(400, "設定值不在允許範圍內")
     cfg.save(SETTINGS_PATH, picked)
     flash("設定已儲存，下次產生報告時套用。")
