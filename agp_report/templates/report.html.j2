@@ -31,6 +31,16 @@
   /* 窄螢幕替代版面，預設不顯示；桌機與列印都走原本的表格 */
   .blocks-list { display: none; }
 
+  /* 互動層。預設完全不顯示——沒有 JS 時就是一張靜態 SVG，與改動前無異。 */
+  .xh-tip {
+    position: absolute; pointer-events: none; z-index: 5; opacity: 0;
+    background: var(--ink); color: #fff; font-size: 10px; line-height: 1.45;
+    padding: 4px 7px; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .xh-tip b { font-size: 12px; }
+  .xh-tip .ev { color: #ffd9a8; }
+  .xh-wrap { position: relative; }
+
   /* ── 列印：A4 行為完全維持原樣，本區塊是這份報告的原始設計 ──────────── */
   @media print {
     body { background: #fff; }
@@ -41,6 +51,9 @@
     thead { display: table-header-group; }
     h2, h3 { page-break-after: avoid; break-after: avoid; }
     .toolbar { display: none; }
+    /* 互動元件一律不進紙本。PDF 由 headless chromium 吃同一份檔案轉出，
+       它會執行這段 JS，但列印時看不到任何互動痕跡。 */
+    .xh-tip, .xh-cross, .xh-dot { display: none !important; }
   }
 
   /* ── 螢幕：同一份 HTML 的另一套版面。捲動順序與紙本完全一致 ────────── */
@@ -269,7 +282,7 @@
     <div class="sub" style="margin-bottom:2px">
       深線為中位數，深帶 25–75%，淺帶 5–95%；綠底為目標範圍 70–180 mg/dL
     </div>
-    {{ agp_svg|safe }}
+    <div class="xh-wrap">{{ agp_svg|safe }}</div>
   </section>
 
   <section class="rule">
@@ -450,7 +463,7 @@
       <b class="tnum">{{ d.day.strftime('%m-%d') }}</b>　週{{ d.weekday }}
       <span class="dmeta tnum">讀數 {{ d.readings }}／96　注射 {{ '%.0f'|format(d.units) }}u</span>
     </div>
-    {{ svg|safe }}
+    <div class="xh-wrap">{{ svg|safe }}</div>
     {% set by_hour = d.insulin_by_hour() %}
     <table class="ht">
       <thead><tr>
@@ -619,6 +632,111 @@
     本報告不構成醫療建議。所有劑量調整請與您的醫療團隊討論。
   </footer>
 </div>
+
+{# ── 互動：滑過曲線顯示該時刻的數值 ─────────────────────────────────────
+   專案原本的決定是「不用 JS 圖表庫（離線與列印不可靠）」——反對的是外部
+   相依，不是所有 JS。這段內嵌原生程式碼不破壞自包含、不需要網路，
+   而且沒有它時整份報告就是改動前的靜態 SVG。 #}
+<script type="application/json" id="xh-data">{{ xh_data|safe }}</script>
+<script>
+(function () {
+  var el = document.getElementById("xh-data");
+  if (!el || !document.querySelector(".xh")) return;
+  var DATA = JSON.parse(el.textContent);
+
+  var pad = function (n) { return n < 10 ? "0" + n : "" + n; };
+  var hhmm = function (min) { return pad(Math.floor(min / 60)) + ":" + pad(min % 60); };
+  var colour = function (v) {
+    return v < 54 ? "#8b1a1a" : v < 70 ? "#d03b3b"
+         : v < 180 ? "#0ca30c" : v < 250 ? "#fab219" : "#ec835a";
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll("svg.xh"), function (svg) {
+    var kind = svg.dataset.xh;
+    var x0 = +svg.dataset.x0, x1 = +svg.dataset.x1;
+    var top = +svg.dataset.top, ph = +svg.dataset.ph;
+    var ymin = +svg.dataset.ymin, ymax = +svg.dataset.ymax;
+    var vb = svg.viewBox.baseVal.width;
+
+    var day = kind === "day" ? DATA.day[+svg.dataset.i] : null;
+    if (kind === "day" && !day) return;
+    var n = kind === "day" ? day.slots.length : DATA.agp.length;
+
+    var cross = svg.querySelector(".xh-cross");
+    var dot = svg.querySelector(".xh-dot");
+    var hit = svg.querySelector(".xh-hit");
+    if (!cross || !dot || !hit) return;
+
+    var tip = document.createElement("div");
+    tip.className = "xh-tip";
+    svg.parentNode.appendChild(tip);
+
+    var Y = function (v) {
+      var c = Math.max(ymin, Math.min(ymax, v));
+      return top + ph * (ymax - c) / (ymax - ymin);
+    };
+    var X = function (i) { return x0 + (x1 - x0) * i / (n - 1); };
+
+    var hide = function () {
+      tip.style.opacity = "0";
+      cross.setAttribute("opacity", "0");
+      dot.setAttribute("opacity", "0");
+    };
+
+    var show = function (clientX) {
+      var r = svg.getBoundingClientRect();
+      if (!r.width) return;
+      var scale = vb / r.width;                       // viewBox 單位 ÷ 螢幕像素
+      var i = Math.round(((clientX - r.left) * scale - x0) / (x1 - x0) * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+
+      var value, html;
+      if (kind === "day") {
+        value = day.slots[i];
+        if (value === null) { hide(); return; }       // 該格沒有讀數
+        var minute = i * 15;
+        var near = day.ins.filter(function (p) { return Math.abs(p[0] - minute) <= 15; });
+        html = hhmm(minute) + "　<b>" + value + "</b> mg/dL";
+        if (near.length) {
+          html += '<br><span class="ev">速效 ' + near.map(function (p) {
+            return p[1].toFixed(1) + "u";
+          }).join("、") + "</span>";
+        }
+      } else {
+        var row = DATA.agp[i];
+        value = row[2];
+        html = hhmm(i * 15) + "　中位數 <b>" + value + "</b>"
+             + "<br>5–95%：" + row[0] + "–" + row[4]
+             + '　<span class="ev">25–75%：' + row[1] + "–" + row[3] + "</span>"
+             + '<br><span class="ev">該時間格 ' + row[5] + " 筆讀數</span>";
+      }
+
+      cross.setAttribute("x1", X(i)); cross.setAttribute("x2", X(i));
+      cross.setAttribute("opacity", "0.35");
+      dot.setAttribute("cx", X(i)); dot.setAttribute("cy", Y(value));
+      dot.setAttribute("fill", colour(value));
+      dot.setAttribute("opacity", "1");
+
+      tip.innerHTML = html;
+      var left = X(i) / scale + 8;
+      tip.style.left = Math.max(0, Math.min(r.width - tip.offsetWidth - 2, left)) + "px";
+      tip.style.top = (svg.offsetTop + Y(value) / scale - tip.offsetHeight - 6) + "px";
+      tip.style.opacity = "1";
+    };
+
+    svg.addEventListener("mousemove", function (e) { show(e.clientX); });
+    svg.addEventListener("mouseleave", hide);
+    // 觸控裝置沒有 hover。preventDefault 讓橫向拖曳不被頁面捲動搶走。
+    svg.addEventListener("touchstart", function (e) {
+      e.preventDefault(); show(e.touches[0].clientX);
+    }, { passive: false });
+    svg.addEventListener("touchmove", function (e) {
+      e.preventDefault(); show(e.touches[0].clientX);
+    }, { passive: false });
+    svg.addEventListener("touchend", hide);
+  });
+})();
+</script>
 
 </body>
 </html>

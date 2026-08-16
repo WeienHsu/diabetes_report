@@ -8,6 +8,7 @@
 """
 
 import argparse
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -158,8 +159,15 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         worst_block=max(blocks, key=lambda b: b.mean) if blocks else None,
         band_tint=charts.BAND_TINT,
         toolbar=toolbar,
-        details=[(d, charts.daily_detail(d)) for d in details],
+        details=[(d, charts.daily_detail(d, index=i)) for i, d in enumerate(details)],
         detail_days=detail_days,
+        xh_data=json.dumps({
+            "day": [{"label": f"{d.day:%m-%d}",
+                     "slots": [None if v is None else round(v) for v in d.slots],
+                     "ins": [[m, u] for m, u in d.insulin]} for d in details],
+            "agp": [[round(b["p5"]), round(b["p25"]), round(b["p50"]),
+                     round(b["p75"]), round(b["p95"]), b["n"]] for b in m.agp],
+        }, separators=(",", ":")),
         # 90 天會排出 91 列，把 P2 撐成三頁以上——與每日縮圖砍到 14 天同一個問題
         days_rows=days_rows[-DAILY_PROFILE_DAYS:],
         days_note=(f"僅列最近 {DAILY_PROFILE_DAYS} 天；時段統計與低血糖事件涵蓋完整 "
