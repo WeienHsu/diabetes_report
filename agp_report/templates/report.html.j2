@@ -27,13 +27,50 @@
   /* 餐食頁的卡片數會隨飲食紀錄增加，本來就該自然跨頁；固定成一頁反而會擠爆。
      只要求卡片本身不被切斷，區段標題不落在頁尾。 */
   .page.flow { min-height: 0; }
+
+  /* 窄螢幕替代版面，預設不顯示；桌機與列印都走原本的表格 */
+  .blocks-list { display: none; }
+
+  /* ── 列印：A4 行為完全維持原樣，本區塊是這份報告的原始設計 ──────────── */
   @media print {
     body { background: #fff; }
     .page { margin: 0; width: auto; min-height: 0; page-break-after: always; }
     .page:last-child { page-break-after: auto; }
     .card { page-break-inside: avoid; break-inside: avoid; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+    thead { display: table-header-group; }
     h2, h3 { page-break-after: avoid; break-after: avoid; }
+    .toolbar { display: none; }
   }
+
+  /* ── 螢幕：同一份 HTML 的另一套版面。捲動順序與紙本完全一致 ────────── */
+  @media screen {
+    .toolbar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 9px 16px; background: var(--surface);
+      border-bottom: 1px solid var(--ink); margin-bottom: 8mm;
+    }
+    .toolbar .meta { font-size: 10.5px; color: var(--ink2); }
+    .toolbar .meta b { font-size: 12px; }
+    .toolbar .acts { display: flex; gap: 8px; flex: none; }
+    .toolbar a {
+      font-size: 11px; font-weight: 600; padding: 6px 12px; text-decoration: none;
+      background: var(--ink); color: #fff; border: 1px solid var(--ink);
+    }
+    .toolbar a.ghost { background: transparent; color: var(--ink); border-color: var(--axis); }
+    .toolbar a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  }
+
+  .brow {
+    display: flex; align-items: baseline; gap: 10px;
+    border-bottom: 1px solid var(--grid); padding: 5px 0;
+  }
+  .brow .t { font-size: 10px; color: var(--muted); width: 42px; flex: none;
+             font-variant-numeric: tabular-nums; }
+  .brow .m { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .brow .r { font-size: 9.5px; color: var(--ink2); margin-left: auto;
+             font-variant-numeric: tabular-nums; }
 
   h1 { font-size: 17px; margin: 0; letter-spacing: -0.2px; }
   h2 { font-size: 13px; margin: 0 0 6px; letter-spacing: 0.02em; }
@@ -66,6 +103,17 @@
   .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 5px;
             vertical-align: -1px; }
 
+  /* 時段表：12 欄擠在 188mm 內，每欄約 54px，字級必須壓到 9px 才排得下 */
+  .blocks { border-collapse: collapse; width: 100%; font-size: 9px; table-layout: fixed; }
+  .blocks th, .blocks td { text-align: center; padding: 3px 1px;
+                           border-bottom: 1px solid var(--grid);
+                           font-variant-numeric: tabular-nums; }
+  .blocks th.lbl, .blocks td.lbl { text-align: left; width: 70px; color: var(--ink2);
+                                   font-size: 9.5px; padding-left: 0; }
+  .blocks thead th { color: var(--muted); font-weight: 600; font-size: 8.5px; }
+  .blocks tr.avg td { font-weight: 600; font-size: 11px; }
+  .blocks .worst { outline: 1.5px solid var(--ink); outline-offset: -1.5px; }
+
   .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .card { border: 1px solid var(--grid); padding: 8px 9px; background: #fff; }
   .card .when { font-size: 10px; color: var(--muted); }
@@ -80,9 +128,46 @@
 
   footer { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--grid);
            font-size: 9.5px; color: var(--muted); }
+
+  /* ── 窄螢幕覆寫必須放在所有元件規則之後 ────────────────────────────────
+     媒體查詢不增加優先權，同權重下由順序決定。寫在前面的話，
+     .cols 與 .meals 的 grid-template-columns 會被後面的基礎規則蓋回去。 */
+
+  /* SVG 都已內含 viewBox，縮放純粹是 CSS 的事——charts.py 不需要任何改動 */
+  @media screen and (max-width: 860px) {
+    .page { width: auto; max-width: 100%; min-height: 0; padding: 0 12px 6mm; }
+    svg { max-width: 100%; height: auto; }
+    .cols { grid-template-columns: 1fr; }
+    .meals { grid-template-columns: 1fr; }
+    .toolbar { margin-bottom: 4mm; }
+  }
+
+  /* 12 欄的時段表在手機上必然不可讀，改用依平均值排序的列式；
+     完整的 12 欄仍保留在列印版，等價檢視不因螢幕縮減而失效 */
+  @media screen and (max-width: 600px) {
+    .blocks { display: none; }
+    .blocks-list { display: block; }
+    .drop-narrow { display: none; }
+    .toolbar { flex-wrap: wrap; }
+    header { flex-wrap: wrap; gap: 6px; }
+  }
 </style>
 </head>
 <body>
+
+{# 只有 web 層會傳 toolbar；CLI 產出的檔案沒有這一段。列印時一律隱藏，
+   所以同一份 HTML 既是線上頁面、也是轉 PDF 的來源。 #}
+{% if toolbar %}
+<div class="toolbar">
+  <div class="meta tnum">
+    <b>{{ m.start.strftime('%Y-%m-%d') }} – {{ m.end.strftime('%Y-%m-%d') }}</b>　{{ m.days }} 天　·　涵蓋率 {{ '%.0f'|format(m.coverage_pct) }}%　·　TIR <b>{{ '%.1f'|format(m.band_pct['target']) }}%</b>
+  </div>
+  <div class="acts">
+    <a class="ghost" href="{{ toolbar.new }}">新報告</a>
+    <a href="{{ toolbar.pdf }}">下載 PDF</a>
+  </div>
+</div>
+{% endif %}
 
 {# ── P1 醫師版 AGP：完全遵循國際共識版面，讓醫師秒讀 ───────────────── #}
 <div class="page">
@@ -115,9 +200,15 @@
           <div class="v tnum">{{ '%.1f'|format(m.cv_pct) }}%</div>
           <div class="g">目標 ≤36%　<span class="{{ 'hit' if m.cv_pct <= 36 else 'miss' }}">{{ '達標' if m.cv_pct <= 36 else '未達標' }}</span></div>
         </div>
+        {# SD = CV × 平均，三者同時顯示時 SD 不帶獨立資訊。這一格改放低血糖事件——
+           一個達標的 TBR 百分比可能藏著睡夢中一小時的低血糖。 #}
         <div class="stat">
-          <div class="k">標準差 SD</div>
-          <div class="v tnum">{{ '%.0f'|format(m.sd) }}<span style="font-size:11px"> mg/dL</span></div>
+          <div class="k">低血糖事件</div>
+          <div class="v tnum">{{ events|length }}<span style="font-size:11px"> 次</span></div>
+          <div class="g">
+            {%- if events %}平均持續 {{ (events|sum(attribute='minutes') / events|length)|round|int }} 分・最低 {{ '%.0f'|format(events|map(attribute='nadir')|min) }}
+            {%- else %}期間內無連續 15 分鐘以上的低血糖{% endif %}
+          </div>
         </div>
       </div>
 
@@ -126,21 +217,26 @@
       <h3 style="margin-top:12px">各分區時間佔比</h3>
       <table>
         <thead><tr>
-          <th>分區</th><th class="n">佔比</th><th class="n">每日約</th>
-          <th class="n">國際目標</th><th>達標</th>
+          <th>分區</th><th class="n">佔比</th><th class="n drop-narrow">每日約</th>
+          <th class="n">判定值</th><th class="n">國際目標</th><th>達標</th>
         </tr></thead>
         <tbody>
         {% for row in band_rows %}
           <tr>
             <td><span class="swatch" style="background:{{ row.color }}"></span>{{ row.label }}</td>
             <td class="n">{{ '%.1f'|format(row.pct) }}%</td>
-            <td class="n muted">{{ row.hhmm }}</td>
+            <td class="n muted drop-narrow">{{ row.hhmm }}</td>
+            <td class="n">{% if row.combined is not none %}<b>{{ '%.1f'|format(row.combined) }}%</b>{% else %}<span class="muted">—</span>{% endif %}</td>
             <td class="n muted">{{ row.goal }}%</td>
             <td class="{{ 'hit' if row.ok else 'miss' }}">{{ '✓' if row.ok else '✗' }}</td>
           </tr>
         {% endfor %}
         </tbody>
       </table>
+      <div class="sub" style="font-size:9.5px;margin-top:3px">
+        判定值為達標實際比較的累計分區——「低」比的是 &lt;70 全體、「高」比的是 &gt;180 全體。
+        其餘各列的判定值即左方佔比。
+      </div>
     </div>
     <div style="text-align:center">
       <h2>時間佔比</h2>
@@ -168,7 +264,152 @@
   </footer>
 </div>
 
-{# ── P2 餐食 × 血糖：LibreView 做不到的部分。沒有飲食資料就整頁不輸出 ── #}
+{# ── P2 時段與每日模式：把 AGP 的形狀翻譯成「哪個時段、哪一天」 ──────────
+   低血糖事件數會隨期間成長（14 天 3 次、90 天 22 次），與餐食卡片同一個性質，
+   因此同樣不鎖定頁數。截斷一份臨床安全清單比多印一頁糟得多。 #}
+<div class="page flow">
+  <header>
+    <div>
+      <h1>時段與每日模式</h1>
+      <div class="sub">找出問題集中在一天中的哪個時段、哪一天</div>
+    </div>
+    <div class="sub tnum" style="text-align:right">
+      {{ m.start.strftime('%Y-%m-%d') }} – {{ m.end.strftime('%Y-%m-%d') }}（{{ m.days }} 天）<br>
+      低血糖事件 {{ events|length }} 次
+    </div>
+  </header>
+
+  <section>
+    <h2>每 2 小時時段統計</h2>
+    <div class="sub" style="margin-bottom:3px">
+      平均值依所屬分區上淡色底；框線為本期間平均值最高的時段
+    </div>
+    <table class="blocks">
+      <thead>
+        <tr>
+          <th class="lbl"></th>
+          {% for b in blocks %}<th>{{ b.label }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="avg">
+          <td class="lbl">平均 mg/dL</td>
+          {% for b in blocks %}
+          <td class="{{ 'worst' if b.hour == worst_block.hour }}"
+              style="background:{{ band_tint[b.band] }}">{{ '%.0f'|format(b.mean) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td class="lbl">目標內 TIR</td>
+          {% for b in blocks %}
+          <td class="{{ 'worst' if b.hour == worst_block.hour }}">{{ '%.0f'|format(b.tir_pct) }}%</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td class="lbl">&gt;250 佔比</td>
+          {% for b in blocks %}
+          <td class="{{ 'worst' if b.hour == worst_block.hour }}">{{ '%.0f'|format(b.very_high_pct) }}%</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td class="lbl">速效 u/日</td>
+          {% for b in blocks %}
+          <td class="{{ 'worst' if b.hour == worst_block.hour }}">
+            {%- if b.insulin_per_day %}{{ '%.1f'|format(b.insulin_per_day) }}{% else %}<span class="muted">—</span>{% endif -%}
+          </td>
+          {% endfor %}
+        </tr>
+        {% if blocks|sum(attribute='meals') %}
+        <tr>
+          <td class="lbl">餐次・碳水</td>
+          {% for b in blocks %}
+          <td class="{{ 'worst' if b.hour == worst_block.hour }}">
+            {%- if b.meals %}{{ b.meals }}・{{ '%.0f'|format(b.carbs_mean) }}g{% else %}<span class="muted">—</span>{% endif -%}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    {# 手機版：同一批數字改依平均值由高到低排，「哪個時段最糟」正是這頁的目的 #}
+    <div class="blocks-list">
+      {% for b in blocks_ranked %}
+      <div class="brow" style="background:{{ band_tint[b.band] }}">
+        <span class="t">{{ b.label }}</span>
+        <span class="m">{{ '%.0f'|format(b.mean) }}</span>
+        <span class="r">TIR {{ '%.0f'|format(b.tir_pct) }}%　&gt;250 {{ '%.0f'|format(b.very_high_pct) }}%　速效 {{ '%.1f'|format(b.insulin_per_day) }}u</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="sub" style="margin-top:5px">
+      本期間平均值最高的是 <b>{{ worst_block.label }} 時</b>：平均 {{ '%.0f'|format(worst_block.mean) }} mg/dL、
+      目標內僅 {{ '%.0f'|format(worst_block.tir_pct) }}%、{{ '%.0f'|format(worst_block.very_high_pct) }}% 的時間超過 250。
+      該時段速效胰島素平均 {{ '%.1f'|format(worst_block.insulin_per_day) }} u/日。
+    </div>
+  </section>
+
+  {% if events %}
+  <section class="rule">
+    <h2>低血糖事件</h2>
+    <div class="sub" style="margin-bottom:3px">
+      依國際共識定義：連續 15 分鐘以上低於 70 mg/dL 為一次事件
+    </div>
+    <table>
+      <thead><tr>
+        <th>開始</th><th class="n">持續</th><th class="n">最低</th>
+        <th class="n">前 4 小時速效</th><th>時段</th>
+      </tr></thead>
+      <tbody>
+      {% for e in events %}
+        <tr>
+          <td class="tnum">{{ e.start.strftime('%m-%d %H:%M') }}</td>
+          <td class="n tnum">{{ e.minutes }} 分</td>
+          <td class="n tnum">{{ '%.0f'|format(e.nadir) }}</td>
+          <td class="n tnum">{% if e.bolus_before %}{{ '%.1f'|format(e.bolus_before) }} u{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{{ e.period }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  <section class="rule">
+    <h2>每日摘要</h2>
+    {% if days_note %}<div class="sub" style="margin-bottom:3px">{{ days_note }}</div>{% endif %}
+    <table>
+      <thead><tr>
+        <th>日期</th><th>週</th><th class="n">平均</th><th class="n">TIR</th>
+        <th class="n">最高</th><th class="n">最低</th><th class="n">速效 u</th><th class="n">低血糖</th>
+      </tr></thead>
+      <tbody>
+      {% for r in days_rows %}
+        <tr{% if r.partial %} class="muted"{% endif %}>
+          <td class="tnum">{{ r.day.strftime('%m-%d') }}{% if r.partial %}<span title="期間頭尾，非完整一日">*</span>{% endif %}</td>
+          <td>{{ r.weekday }}</td>
+          <td class="n tnum">{{ '%.0f'|format(r.mean) }}</td>
+          <td class="n tnum">{{ '%.0f'|format(r.tir_pct) }}%</td>
+          <td class="n tnum">{{ '%.0f'|format(r.highest) }}</td>
+          <td class="n tnum">{{ '%.0f'|format(r.lowest) }}</td>
+          <td class="n tnum">{{ '%.1f'|format(r.insulin_units) }}</td>
+          <td class="n tnum">{% if r.hypo_count %}<span class="miss">{{ r.hypo_count }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    時段統計的形狀會隨期間長度明顯變化，短期間波動大，<strong>不宜當成穩定結論</strong>。
+    標示 <b>*</b> 的日期位於期間頭尾、只涵蓋部分時間，各欄數值不可與整日相比。
+    其餘日期的速效胰島素欄反映的是<strong>記錄</strong>而非實際注射量，數值明顯偏低通常代表當天漏記。
+    本報告只呈現資料型態，不構成任何胰島素劑量或用藥建議。
+  </footer>
+</div>
+
+{# ── P3 餐食 × 血糖：LibreView 做不到的部分。沒有飲食資料就整頁不輸出 ── #}
 {% if responses %}
 <div class="page flow">
   <header>
@@ -237,6 +478,29 @@
         <tr><td>GMI 計算式</td><td class="tnum">3.31 + 0.02392 × 平均葡萄糖(mg/dL)</td></tr>
         <tr><td>百分位平滑</td><td>各時間格納入前後 45 分鐘讀數，避免短期間資料使曲線過度鋸齒。</td></tr>
         <tr><td>餐次合併</td><td>相隔 30 分鐘內的飲食紀錄視為同一次進食，否則同一頓飯會拆成多張卡片、重複計算同一個血糖峰值。</td></tr>
+        <tr><td>低血糖事件</td><td>連續 15 分鐘以上低於 70 mg/dL 為一次事件。中間回升即分成兩次；感測器斷線超過 30 分鐘的前後兩段不併為同一次，避免貼片脫落捏造出橫跨數小時的假事件。跨日事件歸屬於起始日。</td></tr>
+        <tr><td>長效胰島素</td><td>匯出檔中僅 95 筆紀錄、未逐日記錄（固定劑量施打），樣本不足以支撐任何分析，故<strong>不納入本報告</strong>。</td></tr>
+        <tr><td>速效胰島素數值</td><td>反映的是<strong>記錄</strong>而非實際注射量。每日摘要中某日明顯偏低通常代表當天漏記，而非真的少打。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  {# 靜態的一次性比對紀錄，不是本期間算出來的——日期必須寫死在句子裡，
+     否則換一份 CSV 重跑，這段就會變成沒有根據的宣稱。 #}
+  <section class="rule">
+    <h2>與原廠報告的交叉驗證</h2>
+    <p class="sub" style="margin:0 0 4px">
+      2026-08-16 以同一份匯出檔比對 LibreView 官方 AGP 報告的 90 天輸出。
+      期間相差一天（官方 05-19～08-16，本引擎 05-17～08-15），差異全數落在小數點層級。
+    </p>
+    <table>
+      <thead><tr><th>指標</th><th class="n">LibreView</th><th class="n">本引擎</th><th class="n">差異</th></tr></thead>
+      <tbody>
+        <tr><td>平均葡萄糖</td><td class="n tnum">183</td><td class="n tnum">182</td><td class="n tnum muted">1</td></tr>
+        <tr><td>GMI</td><td class="n tnum">7.7%</td><td class="n tnum">7.7%</td><td class="n tnum muted">0.0</td></tr>
+        <tr><td>血糖變異度 CV</td><td class="n tnum">37.0%</td><td class="n tnum">36.6%</td><td class="n tnum muted">0.4</td></tr>
+        <tr><td>目標範圍內時間</td><td class="n tnum">52%</td><td class="n tnum">50.5%</td><td class="n tnum muted">1.5</td></tr>
+        <tr><td>很高 &gt;250</td><td class="n tnum">14%</td><td class="n tnum">14.3%</td><td class="n tnum muted">0.3</td></tr>
       </tbody>
     </table>
   </section>

@@ -1,0 +1,26 @@
+[Unit]
+Description=血糖回診報告 web 介面
+Documentation=https://github.com/WeienHsu/diabetes_report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/weien/diabetes_report
+
+# 綁 127.0.0.1：唯一入口是 cloudflared，區網不該直接連得到。
+# -t 180 是因為 90 天報告加 PDF 轉檔可能超過 gunicorn 預設的 30 秒。
+# -w 2 對單一使用者足夠；報告產生是 CPU 密集的同步工作。
+ExecStart=/home/ubuntu/weien/diabetes_report/.venv/bin/gunicorn \
+    --workers 2 --timeout 180 --bind 127.0.0.1:8090 web.app:app
+
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
