@@ -1,149 +1,83 @@
 # diabetes_report
 
-把雅培 FreeStyle Libre 的血糖 CSV 與 Google Sheet 的飲食紀錄，合成一份可帶去回診的 A4 報告。
+把雅培 FreeStyle Libre 的血糖 CSV 與 Google Sheet 的飲食紀錄，合成一份可帶去回診的報告。
 
-第 1 頁是遵循國際共識版面的 AGP，給醫師秒讀；第 2 頁起是原廠 LibreView 做不到的
-餐食×血糖分析——因為飲食紀錄帶著蛋白質、脂肪與品項名稱，不只是碳水克數。
+線上版：**https://cgm.whtwbrown.com**
 
----
-
-## 安裝
-
-```bash
-cd ~/weien/diabetes_report
-uv sync
-```
-
-建立 `.venv`、依 `uv.lock` 裝好相依、並把本專案裝成可執行指令。
-只有 Jinja2 一個直接相依，其餘全用標準函式庫。
+第 1 頁是遵循國際共識的 AGP，給醫師秒讀；後面幾頁是原廠 LibreView 做不到的
+分析——因為飲食紀錄帶著蛋白質、脂肪與品項名稱，不只是碳水克數。
 
 ---
 
-## 每次回診前的流程
+## 每次回診前
 
-### 1. 匯出血糖資料
+1. **匯出血糖**：[LibreView](https://www.libreview.com) → 帳號選單 → 匯出資料
+2. **匯出飲食**：Google Sheet「飲食與三大營養素紀錄表」→ **切到「飲食日誌」分頁**
+   → 檔案 → 下載 → 逗號分隔值
+3. 開 https://cgm.whtwbrown.com ，兩個檔案丟上去，選期間，按產生
+4. 報告直接在畫面上讀；要紙本就按「下載 PDF」
 
-[LibreView](https://www.libreview.com) → 帳號選單 → 匯出資料 → 下載 CSV。
-
-```bash
-mv ~/Downloads/*glucose*.csv data/glucose.csv
-```
-
-### 2. 匯出飲食資料
-
-Google Sheet「飲食與三大營養素紀錄表」→ **切到「飲食日誌」分頁** →
-檔案 → 下載 → 逗號分隔值。
+手機也走得完——iOS Safari 的檔案選擇器讀得到「檔案」app，兩份匯出檔都在那裡。
 
 > 試算表有兩個分頁，一次只會匯出**當前所在的那一頁**。停在「食物資料庫」
-> 匯出的話，程式會解析出 0 餐。
-
-```bash
-mv ~/Downloads/*飲食*.csv data/food.csv
-```
-
-### 3. 產報告
-
-```bash
-uv run agp-report \
-    --glucose data/glucose.csv \
-    --food    data/food.csv \
-    --days 14 \
-    --out out/report.html
-```
-
-```
-已產出 out/report.html（58 KB）
-  期間 2026-08-01 – 2026-08-15　涵蓋率 91%　TIR 53.3%　餐次 8
-```
-
-先看這行確認資料吃對了。**涵蓋率低於 70%** 代表感測器有大段時間沒貼或沒掃到，
-AGP 統計會失真，報告第 3 頁會標紅字。
-
-### 4. 印出來
-
-瀏覽器開啟 `out/report.html` → `Ctrl+P` → 紙張選 A4 → 存 PDF 或直接列印。
+> 匯出的話會解析出 0 餐，網頁會直接告訴你。
 
 ---
 
-## 參數
+## 報告怎麼讀
 
-| 參數 | 說明 |
+| 頁 | 內容 |
 |---|---|
-| `--glucose` | **必填**，Libre 匯出的 CSV |
-| `--food` | 選用。不給就只出 AGP 頁與資料品質頁，餐食頁整頁不輸出 |
-| `--days` | 預設 14（AGP 國際標準）。回診通常看 14 或 90 |
-| `--out` | 輸出路徑，資料夾不存在會自動建立 |
+| **P1 醫師版 AGP** | 四個核心指標、時間佔比、24 小時百分位曲線、每日縮圖。固定一張 A4 |
+| **P2 時段與每日模式** | 每 2 小時的平均／TIR／速效用量／餐次、低血糖事件清單、每日摘要表 |
+| **P3 每日詳細記錄** | 每天的完整曲線、注射與進食時刻、每小時極值 |
+| **P4 餐食 × 血糖** | 每餐一張卡：餐後 4 小時曲線、三大營養素、注射劑量 |
+| **P5 資料品質** | 涵蓋率、算法、無障礙限制、與 LibreView 官方報告的交叉驗證 |
 
-```bash
-# 季度趨勢
-uv run agp-report --glucose data/glucose.csv --food data/food.csv \
-                  --days 90 --out out/季度.html
+**第 1 頁的第四格是低血糖事件次數，不是標準差。** SD 等於 CV 乘上平均值，
+三者同列時它不帶任何獨立資訊；而一個達標的 TBR 百分比可能藏著睡夢中一小時的低血糖。
 
-# 只要血糖不要飲食
-uv run agp-report --glucose data/glucose.csv --out out/僅血糖.html
-```
+**分區表右側三欄是跨列的。** 國際共識的門檻本身重疊：>180 全體 <25%、
+其中 >250 單獨 <5%；<70 全體 <4%、其中 <54 單獨 <1%。
 
-`--days 90` 時每日縮圖仍只顯示最近 14 天（91 個縮圖會把第 1 頁撐爆），
-但所有指標都是完整 90 天算的，報告上會註明。
+**標 `*` 的日期**位於期間頭尾、只涵蓋部分時間，數值不可與整日相比。
 
----
+### 線上版才有的操作
 
-## 怎麼讀這份報告
-
-**第 1 頁 — 給醫師。** 四個核心指標、時間佔比、24 小時百分位曲線、每日縮圖，
-固定一張 A4。
-
-第四個指標是**低血糖事件次數**，不是標準差——SD 等於 CV 乘上平均值，
-三者同時列出時它不帶任何獨立資訊，而一個達標的 TBR 百分比可能藏著睡夢中
-一小時的低血糖。分區表的「判定值」欄是達標實際比較的累計分區
-（「低」比的是 <70 全體），與同列的單一分區佔比不同。
-
-**第 2 頁 — 時段與每日模式。** 每 2 小時的平均／TIR／速效用量／餐次，
-框線標出本期間平均值最高的時段；低血糖事件逐次列出；每日一列的摘要表。
-這頁回答的是「問題集中在一天中的哪個時段、哪一天」。
-
-標 `*` 的日期位於期間頭尾、只涵蓋部分時間，數值不可與整日相比。
-
-**第 3 頁起 — 餐食。** 每張卡片是一餐：黑線為餐後 4 小時血糖，直線為進食時刻，
-藍點為注射時間與劑量。用途是找出「同一種食物反應都很糟」的模式。
-
-**最後一頁 — 誠實聲明。** 涵蓋率、樣本數、算法、配色的無障礙限制，
-以及與 LibreView 官方報告的交叉驗證。醫師質疑數字怎麼來的就翻這頁。
+- **滑過曲線**顯示該時刻的血糖、注射與餐點（手機點一下）
+- **四個區段可折疊**。下載的 PDF 一律完整，不受折疊影響
+- **P2 的日期可點**，跳到 P3 該日的詳圖；P3 頂端也可下拉只看某一天
 
 ---
 
-## 常見狀況
+## 設定
 
-| 狀況 | 原因 |
+網頁右上「設定」：
+
+| 項目 | 選項 |
 |---|---|
-| 餐次 0 | 幾乎都是匯出錯分頁，確認是「飲食日誌」 |
-| 中文變方框 | 把 HTML 搬到沒有中文字型的機器才會發生 |
-| 想改版面 | 改 `templates/report.html.j2`（排版）或 `charts.py`（圖表），重跑即可 |
+| 每日詳細記錄 | 7 / 14 / 21 / 28 / 60 / 90 天（旁邊標了各自的頁數與檔案大小） |
+| 餐食反應卡片 | 10 / 20 / 40 / 不限（依時間取最近 N 餐） |
+| 每日摘要表 | 7 / 14 / 30 天 |
+| 資料保留期限 | 永久 / 30 / 90 / 180 / 365 天 |
+
+保留期限**不會自動清除**，要在設定頁按「清除過期資料」。刪除同時移除報告與
+當初上傳的 CSV，**不可復原，沒有垃圾桶**。
 
 ---
 
-## 線上版
+## 部署
 
-網頁介面在 `web/`，跑在 Pi 上、透過 Cloudflare Tunnel 對外，網址
-`https://cgm.whtwbrown.com`。上傳兩份 CSV 就直接讀報告、一鍵下載 PDF，
-不需要 SSH 也不需要指令列。
+跑在 Raspberry Pi 上，透過 Cloudflare Tunnel 對外。服務綁 `127.0.0.1`，
+唯一入口是 cloudflared，身分驗證由 Cloudflare Access 在邊緣完成。
 
-```bash
-uv sync --extra web                       # 裝 flask 與 gunicorn
-uv run gunicorn -w 2 -b 127.0.0.1:8090 -t 180 web.app:app   # 本機試跑
+```
+瀏覽器 ─HTTPS→ Cloudflare 邊緣（Access 驗證）
+                   ↓ Tunnel（出站連線，路由器不開任何 port）
+             cloudflared → 127.0.0.1:8090 gunicorn → Flask
 ```
 
-線上版與 CLI 共用同一個 `build_report()`，產出的報告本體逐位元組相同，
-只多一條列印時會隱藏的工具列。PDF 是伺服器端 headless chromium 吃
-`file://` 轉的——與人工 Ctrl+P 走同一條 `@media print` 樣式。
-
-**資料存放**：`var/uploads/<id>/` 與 `var/reports/<id>/`，權限 700，已列入
-`.gitignore`。目前設定為全部保留，**尚未決定保留期限**——在決定之前，
-Pi 上會持續累積完整的健康資料檔。
-
-### 部署步驟
-
-**1. 需要 root 的部分**（sudo 需要密碼，無法代跑）
+### 1. 安裝服務
 
 ```bash
 cd ~/weien/diabetes_report
@@ -151,69 +85,74 @@ uv sync --extra web
 sudo bash deploy/setup-root.sh
 ```
 
-腳本會裝 cloudflared、安裝並啟用 systemd 服務、確認 `var/` 權限，可重複執行。
+腳本會裝 cloudflared、安裝並啟用 systemd 服務、確認 `var/` 權限。可重複執行。
 
-**2. 建立 Tunnel**（需要你的 Cloudflare 帳號）
+### 2. 建立 Tunnel
 
 ```bash
-cloudflared tunnel login          # 會給一個網址，用瀏覽器授權 whtwbrown.com
-cloudflared tunnel create cgm     # 記下輸出的 UUID
+cloudflared tunnel login          # 不要加 sudo
+cloudflared tunnel create cgm     # 記下 UUID
 ```
 
-`create` 把憑證寫在**你的家目錄**（`~/.cloudflared/<UUID>.json`），
-但服務以 root 執行、讀的是 `/etc/cloudflared/`。中間要自己複製過去：
+`create` 把憑證寫在**家目錄**，服務以 root 執行、讀的是 `/etc/cloudflared/`，
+要自己複製過去：
 
 ```bash
 UUID=<剛才那組 UUID>
 sudo install -o root -g root -m 600 ~/.cloudflared/$UUID.json /etc/cloudflared/
-
 sudo cp deploy/cloudflared-config.yml /etc/cloudflared/config.yml
-sudo nano /etc/cloudflared/config.yml   # 把兩處 TUNNEL_ID 換成那組 UUID
+sudo nano /etc/cloudflared/config.yml   # 兩處 TUNNEL_ID 換成 UUID
 
 cloudflared tunnel route dns cgm cgm.whtwbrown.com   # 不要加 sudo
 sudo cloudflared service install
 sudo systemctl restart cloudflared
 ```
 
-> `route dns` **不能加 sudo**——它要讀 `~/.cloudflared/cert.pem`，
-> 加了 sudo 會去找 root 的家目錄然後失敗。
+> `login` 與 `route dns` **不能加 sudo**，它們要讀 `~/.cloudflared/cert.pem`。
+>
+> `route dns` 建立的是**橘雲 proxied 的 CNAME**，與同一個 zone 裡指向 Vercel
+> 那筆「必須灰雲」的規則相反，不要照抄。
 
-> `route dns` 建立的是一筆**橘雲（proxied）的 CNAME**。這與
-> `lala_dashboard` 指向 Vercel 那筆「必須灰雲 DNS only」的規則**相反**，
-> 兩筆記錄在同一個 zone 裡，不要照抄。
+### 3. 加上認證
 
-> `~/.cloudflared/` 裡的 `cert.pem`（帳號授權）與 `<UUID>.json`（tunnel 憑證正本）
-> 都要留著，兩個都是祕密。
-
-**3. 加上認證**（Cloudflare 儀表板，不能用指令）
-
-Zero Trust → Access → Applications → Add an application → Self-hosted
+Zero Trust → Access → Applications → Add an application → **Self-hosted** →
+**Public DNS**
 
 | 欄位 | 值 |
 |---|---|
-| Application name | `血糖回診報告` |
-| Session duration | 依習慣，建議 1 週 |
-| Public hostname | `cgm.whtwbrown.com` |
-| Policy name | `只有我` |
-| Action | Allow |
+| Subdomain / Domain | `cgm` ／ `whtwbrown.com`（Path 留空） |
+| Policy Action | **Allow**（不是 Bypass） |
 | Include | Emails → 你的信箱 |
 
-登入方式在 Settings → Authentication，預設的 **One-time PIN** 就是 email
-一次性驗證碼，不需要額外設定 identity provider。
-
-**沒做這一步之前，網址是完全公開的。**
-
-### 驗收
+**沒做這步之前，網址是完全公開的。** 驗證：
 
 ```bash
-systemctl status diabetes-report cloudflared      # 兩個都要 active
-
-# 區網直連應該要失敗——確認沒有繞過 Access 的路徑
-curl -m 3 http://$(hostname -I | awk '{print $1}'):8090/
+curl -sI https://cgm.whtwbrown.com/ | head -3    # 要回 302 導向 *.cloudflareaccess.com
+curl -m 3 http://$(hostname -I | awk '{print $1}'):8090/   # 區網直連要失敗
 ```
 
-最後用手機關掉 Wi-Fi、走行動網路開 `https://cgm.whtwbrown.com`：
-應該被 Access 擋下要求驗證，通過後才看得到上傳頁。
+### 更新
+
+```bash
+git pull && uv sync --extra web && sudo systemctl restart diabetes-report
+```
+
+---
+
+## 離線使用
+
+不想開網頁時，同一個引擎有 CLI：
+
+```bash
+uv sync
+uv run agp-report --glucose data/glucose.csv --food data/food.csv \
+                  --days 14 --out out/report.html
+```
+
+`--food` 選用，不給就不輸出餐食頁。`--days` 預設 14（AGP 國際標準）。
+產出的是單檔自包含 HTML，瀏覽器 `Ctrl+P` 存成 A4 PDF。
+
+線上版與 CLI 共用同一個 `build_report()`，報告本體逐位元組相同。
 
 ---
 
@@ -223,21 +162,15 @@ curl -m 3 http://$(hostname -I | awk '{print $1}'):8090/
 uv run python -m unittest discover -s tests
 ```
 
-相依定義在 `pyproject.toml`，`uv.lock` 鎖定完整相依樹（含間接相依），
-兩者都要進版控才能重現環境。
-
 ```
-parse_libre.py   Libre CSV → 血糖／胰島素／碳水／備註事件流
-parse_food.py    飲食日誌 CSV → 餐次（鄰近 30 分鐘內合併、營養素加總）
-metrics.py       AGP 指標：涵蓋率、GMI、CV、五區間佔比、24h 百分位曲線
-                 低血糖事件、每 2 小時時段統計、每日摘要
-meals.py         餐次 × 血糖軌跡 × 注射 → 餐後反應
-charts.py        純 SVG 圖表產生器
-__main__.py      build_report() 報告組裝，與其上的 CLI 包裝
-
-web/app.py       Flask：上傳、產生、閱讀、下載 PDF、歷史清單
-web/pdf.py       headless chromium 轉 A4 PDF
-deploy/          systemd unit、cloudflared 設定範本、setup-root.sh
+agp_report/parse_libre.py   Libre CSV → 血糖／胰島素／碳水／備註事件流
+agp_report/parse_food.py    飲食日誌 CSV → 餐次（30 分鐘內合併）
+agp_report/metrics.py       AGP 指標、低血糖事件、時段統計、每日摘要與詳圖
+agp_report/meals.py         餐次 × 血糖 × 注射 → 餐後反應
+agp_report/charts.py        純 SVG 圖表產生器
+agp_report/__main__.py      build_report() 與其上的 CLI 包裝
+web/                        Flask：上傳、閱讀、PDF、歷史、設定
+deploy/                     systemd unit、cloudflared 設定、setup-root.sh
 ```
 
 ---
@@ -247,5 +180,5 @@ deploy/          systemd unit、cloudflared 設定範本、setup-root.sh
 報告只呈現資料型態，**不構成任何胰島素劑量或用藥建議**。定位是帶去回診與
 醫療團隊討論的素材。
 
-`data/` 與 `out/` 已列入 .gitignore——原始 CSV 檔頭含真實姓名與病歷號，
-產出的報告是完整健康資料。上傳前請先確認 `git status`。
+原始 CSV 檔頭含真實姓名與病歷號，產出的報告是完整健康資料。
+`data/`、`out/`、`var/` 都已列入 `.gitignore`。
