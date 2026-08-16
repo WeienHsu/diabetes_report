@@ -284,6 +284,7 @@ DETAIL_H = 84
 DETAIL_ANCHOR_HOURS = (6, 12, 18)
 SCAN_COLOR = "#2a78d6"   # 洞察頁配色的藍，與注射的紫可區分
 BOLUS_COLOR = "#8e2b6b"
+MEAL_COLOR = SERIES["carbs"]   # 洞察頁的碳水藍，與注射的紫在色與形上都分得開
 
 
 def daily_detail(detail, width: int = 710, index: int = 0) -> str:
@@ -345,6 +346,14 @@ def daily_detail(detail, width: int = 710, index: int = 0) -> str:
                    f'y2="{_fmt(top + 6)}" stroke="{BOLUS_COLOR}" stroke-width="1.6"/>')
         out.append(f'<circle cx="{_fmt(x(minute))}" cy="{_fmt(top - 1.5)}" r="1.9" '
                    f'fill="{BOLUS_COLOR}"/>')
+
+    for minute, _meal in detail.meals:
+        value = slots[min(minute // 15, len(slots) - 1)]
+        cy = min((y(value) if value is not None else y(TARGET_LO)) + 8, DETAIL_H - 3)
+        cx = x(minute)
+        out.append(f'<path d="M{_fmt(cx)} {_fmt(cy - 3.2)}L{_fmt(cx + 3.2)} {_fmt(cy)}'
+                   f'L{_fmt(cx)} {_fmt(cy + 3.2)}L{_fmt(cx - 3.2)} {_fmt(cy)}Z" '
+                   f'fill="{MEAL_COLOR}"/>')
 
     out.append(_interactive(DETAIL_LABEL_W, width, 0, DETAIL_H))
     out.append("</svg>")

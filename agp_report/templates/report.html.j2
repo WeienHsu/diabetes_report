@@ -141,6 +141,7 @@
   .ht thead th { color: var(--muted); font-size: 7px; border-bottom: 0; }
   .ht thead th.anchor { color: var(--ink2); font-weight: 700; }
   .ht tr.ins td { color: #8e2b6b; }
+  .ht tr.carb td { color: #2a78d6; }
   .ht td.hi250 { background: #fbe6dd; }
   .ht td.lo70 { background: #fae3e3; font-weight: 600; }
   .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 9px;
@@ -148,6 +149,7 @@
   .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px;
               vertical-align: -1px; }
   .legend i.ring { background: #fff; border: 1px solid #2a78d6; border-radius: 50%; }
+  .legend i.diamond { background: #2a78d6; transform: rotate(45deg); width: 7px; height: 7px; }
 
   .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .card { border: 1px solid var(--grid); padding: 8px 9px; background: #fff; }
@@ -491,6 +493,15 @@
           <td>{% if by_hour.get(h) %}<b>{{ '%.1f'|format(by_hour[h]) }}</b>{% endif %}</td>
           {% endfor %}
         </tr>
+        {% set carbs = d.carbs_by_hour() %}
+        {% if carbs %}
+        <tr class="carb">
+          <th class="lbl">碳水 g</th>
+          {% for h in range(24) %}
+          <td>{% if carbs.get(h) %}<b>{{ '%.0f'|format(carbs[h]) }}</b>{% endif %}</td>
+          {% endfor %}
+        </tr>
+        {% endif %}
       </tbody>
     </table>
   </section>
@@ -502,7 +513,8 @@
     <span><i style="background:#ec835a"></i>很高 &gt;250</span>
     <span><i style="background:#d03b3b"></i>低 &lt;70</span>
     <span><i class="ring"></i>掃描</span>
-    <span><i style="background:#8e2b6b"></i>速效注射</span>
+    <span><i style="background:#8e2b6b"></i>速效注射（曲線上方）</span>
+    <span><i class="diamond"></i>進食（曲線下方）</span>
   </div>
 
   <footer>
@@ -704,6 +716,13 @@
             return p[1].toFixed(1) + "u";
           }).join("、") + "</span>";
         }
+        (day.meal || []).filter(function (mm) {
+          return Math.abs(mm[0] - minute) <= 15;
+        }).forEach(function (mm) {
+          html += "<br>" + mm[1] + "　" + mm[2]
+                + '<br><span class="ev">碳水 ' + mm[3] + "g・蛋白 " + mm[4]
+                + "g・脂肪 " + mm[5] + "g</span>";
+        });
       } else {
         var row = DATA.agp[i];
         value = row[2];

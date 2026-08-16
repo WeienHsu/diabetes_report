@@ -84,6 +84,7 @@ class DayDetail:
     hourly: list[tuple[float, float] | None]   # 24 個 (最高, 最低)，該小時無讀數為 None
     insulin: list[tuple[int, float]]           # (當日第幾分鐘, 單位)
     scans: list[int]                           # (當日第幾分鐘)
+    meals: list[tuple[int, object]]            # (當日第幾分鐘, parse_food.Meal)
     readings: int
 
     @property
@@ -102,6 +103,13 @@ class DayDetail:
         by_hour: dict[int, float] = {}
         for minute, units in self.insulin:
             by_hour[minute // 60] = by_hour.get(minute // 60, 0.0) + units
+        return by_hour
+
+    def carbs_by_hour(self) -> dict[int, float]:
+        """份量放表格、時機放曲線——欄寬只有 26px，用記號寬度編碼數量讀不出來。"""
+        by_hour: dict[int, float] = {}
+        for minute, meal in self.meals:
+            by_hour[minute // 60] = by_hour.get(minute // 60, 0.0) + meal.carbs
         return by_hour
 
 
@@ -294,7 +302,8 @@ def time_blocks(readings: list[tuple[datetime, float]],
 def daily_details(readings: list[tuple[datetime, float]],
                   insulin: list[tuple[datetime, float]],
                   scans: list[tuple[datetime, float]],
-                  limit: int = 7) -> list[DayDetail]:
+                  limit: int = 7,
+                  meals: list = ()) -> list[DayDetail]:
     """最近 N 天的完整軌跡。
 
     每日縮圖只有 58px 高、沒有座標軸也沒有標記，看得出起伏但看不出敘事。
@@ -328,6 +337,8 @@ def daily_details(readings: list[tuple[datetime, float]],
             hourly=hourly,
             insulin=sorted((t.hour * 60 + t.minute, u) for t, u in insulin if t.date() == day),
             scans=sorted(t.hour * 60 + t.minute for t, _ in scans if t.date() == day),
+            meals=sorted(((x.when.hour * 60 + x.when.minute, x)
+                          for x in meals if x.when.date() == day), key=lambda p: p[0]),
             readings=sum(1 for v in slots if v is not None),
         ))
     return details
