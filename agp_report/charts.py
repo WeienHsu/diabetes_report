@@ -34,6 +34,16 @@ BAND_LABEL = {
 # 深色底上的標籤用白字，淺色底（黃）用墨色
 BAND_ON_COLOR = {"high": INK}
 
+# 同一組分區色的淡底，用於時段表的儲存格。分區色本身在小面積色塊上
+# 會蓋掉黑字，這裡只需要「一眼看出哪幾格偏高」，不需要飽和度。
+BAND_TINT = {
+    "very_low": "#f6e4e4",
+    "low": "#fae3e3",
+    "target": "#e8f4e8",
+    "high": "#fdf1d8",
+    "very_high": "#fbe6dd",
+}
+
 # P2+ 洞察頁：dataviz 參考配色前三槽，all-pairs 全數通過
 SERIES = {"carbs": "#2a78d6", "fat": "#eb6834", "protein": "#1baf7a"}
 

@@ -5,10 +5,20 @@
 
 import statistics
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 READING_INTERVAL_MIN = 15  # Libre 感測器取樣間隔
 BINS_PER_DAY = 24 * 60 // READING_INTERVAL_MIN
+
+# 低血糖事件（國際共識）：連續 15 分鐘以上低於 70 mg/dL 算一次。
+# 感測器有斷線時，跨過空窗的兩段讀數不算同一次事件——否則貼片脫落幾小時
+# 再回來、剛好前後都偏低，會捏造出一次橫跨數小時的假事件。
+HYPO_THRESHOLD = 70
+HYPO_MIN_MINUTES = 15
+HYPO_MAX_GAP_MIN = 2 * READING_INTERVAL_MIN
+
+BLOCK_HOURS = 2  # 時段統計的區間長度
+WEEKDAY_ZH = "一二三四五六日"
 
 # 五個分區的下界（mg/dL）與國際共識目標佔比（%）
 BANDS = [
@@ -18,6 +28,64 @@ BANDS = [
     ("high", "高", 180, 250, "<25"),
     ("very_high", "很高", 250, None, "<5"),
 ]
+
+
+@dataclass
+class HypoEvent:
+    start: datetime
+    end: datetime
+    minutes: int
+    nadir: float
+    bolus_before: float = 0.0   # 事件前 4 小時內的速效總量，由 hypo_events 填入
+
+    @property
+    def period(self) -> str:
+        """發生時段。低血糖落在睡眠時段的臨床意義最重，值得單獨標示。"""
+        h = self.start.hour
+        if h < 3:
+            return "深夜"
+        if h < 6:
+            return "凌晨"
+        if h < 12:
+            return "上午"
+        if h < 18:
+            return "下午"
+        return "夜間"
+
+
+@dataclass
+class TimeBlock:
+    hour: int                   # 區間起始小時
+    n: int
+    mean: float
+    tir_pct: float
+    very_high_pct: float
+    insulin_per_day: float
+    meals: int
+    carbs_mean: float
+
+    @property
+    def label(self) -> str:
+        return f"{self.hour:02d}-{self.hour + BLOCK_HOURS:02d}"
+
+    @property
+    def band(self) -> str:
+        """平均值所屬分區，供報告替該格上淡色底。"""
+        return _band_of(self.mean)
+
+
+@dataclass
+class DaySummary:
+    day: date
+    weekday: str
+    n: int
+    mean: float
+    tir_pct: float
+    highest: float
+    lowest: float
+    insulin_units: float
+    hypo_count: int
+    partial: bool               # 期間頭尾被切斷的日子，數值不可與整日相比
 
 
 @dataclass
@@ -124,3 +192,102 @@ def compute(readings: list[tuple[datetime, float]], days: int,
         gmi_pct=3.31 + 0.02392 * mean,
         band_pct=band_pct, agp=agp, daily=daily,
     )
+
+
+def hypo_events(readings: list[tuple[datetime, float]],
+                insulin: list[tuple[datetime, float]] = ()) -> list[HypoEvent]:
+    """低血糖事件。
+
+    只報 TBR 佔比會漏掉最重要的那件事：1.4% 分散成十幾次五分鐘的雜訊，
+    和集中在睡夢中一次 60 分鐘的低血糖，臨床意義完全不同。
+    """
+    runs: list[list[tuple[datetime, float]]] = []
+    current: list[tuple[datetime, float]] = []
+    for when, value in readings:
+        # 回到 70 以上、或與前一筆之間有斷線空窗，都讓目前這段收尾
+        gapped = bool(current) and when - current[-1][0] > timedelta(minutes=HYPO_MAX_GAP_MIN)
+        if value >= HYPO_THRESHOLD or gapped:
+            if current:
+                runs.append(current)
+            current = []
+        if value < HYPO_THRESHOLD:
+            current.append((when, value))
+    if current:
+        runs.append(current)
+
+    events = []
+    for run in runs:
+        minutes = int((run[-1][0] - run[0][0]).total_seconds() // 60)
+        if minutes < HYPO_MIN_MINUTES:
+            continue
+        window = run[0][0] - timedelta(hours=4)
+        events.append(HypoEvent(
+            start=run[0][0], end=run[-1][0], minutes=minutes,
+            nadir=min(v for _, v in run),
+            bolus_before=sum(u for t, u in insulin if window <= t < run[0][0]),
+        ))
+    return events
+
+
+def time_blocks(readings: list[tuple[datetime, float]],
+                insulin: list[tuple[datetime, float]],
+                meals: list[tuple[datetime, float]],
+                days: int) -> list[TimeBlock]:
+    """每 2 小時的時段統計。
+
+    AGP 曲線看得出形狀，但講不出「哪個時段最糟」。這張表把曲線翻譯成
+    可以拿去跟醫師討論的具體時段。meals 為 (時間, 碳水克數)。
+    """
+    blocks = []
+    for hour in range(0, 24, BLOCK_HOURS):
+        end_hour = hour + BLOCK_HOURS
+        values = [v for t, v in readings if hour <= t.hour < end_hour]
+        if not values:
+            continue
+        units = [u for t, u in insulin if hour <= t.hour < end_hour]
+        carbs = [c for t, c in meals if hour <= t.hour < end_hour]
+        blocks.append(TimeBlock(
+            hour=hour,
+            n=len(values),
+            mean=statistics.fmean(values),
+            tir_pct=sum(1 for v in values if 70 <= v < 180) / len(values) * 100,
+            very_high_pct=sum(1 for v in values if v >= 250) / len(values) * 100,
+            insulin_per_day=sum(units) / days if days else 0.0,
+            meals=len(carbs),
+            carbs_mean=statistics.fmean(carbs) if carbs else 0.0,
+        ))
+    return blocks
+
+
+def daily_summary(readings: list[tuple[datetime, float]],
+                  insulin: list[tuple[datetime, float]],
+                  events: list[HypoEvent]) -> list[DaySummary]:
+    """每日一列的摘要。揭露每日縮圖看不出來的東西——例如某天速效只記了 4u。"""
+    if not readings:
+        return []
+    by_day: dict[date, list[float]] = {}
+    for when, value in readings:
+        by_day.setdefault(when.date(), []).append(value)
+
+    # 期間的頭尾兩天通常只涵蓋半天，其血糖與胰島素都不可與整日相比。
+    # 不標出來的話，最後一天的低胰島素會被誤讀成漏記。
+    first, last = readings[0][0], readings[-1][0]
+    cut_first = first.date() if first.time() > time(0, 0) else None
+    cut_last = last.date() if last.time() < time(23, 45) else None
+
+    rows = []
+    for day, values in sorted(by_day.items()):
+        rows.append(DaySummary(
+            day=day,
+            weekday=WEEKDAY_ZH[day.weekday()],
+            n=len(values),
+            mean=statistics.fmean(values),
+            tir_pct=sum(1 for v in values if 70 <= v < 180) / len(values) * 100,
+            highest=max(values),
+            lowest=min(values),
+            insulin_units=sum(u for t, u in insulin if t.date() == day),
+            # 跨日事件歸屬於起始日
+            hypo_count=sum(1 for e in events if e.start.date() == day),
+            partial=day in (cut_first, cut_last),
+        ))
+    return rows
