@@ -203,8 +203,12 @@
   .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .card { border: 1px solid var(--grid); padding: 8px 9px; background: #fff; }
   .card .when { font-size: 10px; color: var(--muted); }
-  .card .name { font-size: 11.5px; font-weight: 600; margin: 1px 0 4px;
+  .card .name { font-size: 11.5px; font-weight: 600; margin: 1px 0 2px;
                 overflow-wrap: anywhere; }
+  .card .name:last-of-type { margin-bottom: 4px; }
+  /* 合併的進食場合分行標出各自的餐別 */
+  .card .mlabel { display: inline-block; min-width: 34px; font-weight: 400;
+                  color: var(--muted); font-size: 10px; margin-right: 4px; }
   .macros { display: flex; gap: 8px; font-size: 10px; color: var(--ink2);
             margin-bottom: 4px; }
   .macros b { font-weight: 600; color: var(--ink); }
@@ -618,8 +622,10 @@
   <section class="meals">
     {% for r in responses %}
     <div class="card">
-      <div class="when tnum">{{ r.meal.when.strftime('%m-%d %H:%M') }}　{{ r.meal.label or '未分類' }}</div>
-      <div class="name">{{ r.meal.title }}</div>
+      <div class="when tnum">{{ r.meal.when.strftime('%m-%d %H:%M') }}</div>
+      {% for label, items in r.meal.groups %}
+      <div class="name"><span class="mlabel">{{ label }}</span>{{ items|map(attribute='name')|join('＋') }}</div>
+      {% endfor %}
       <div class="macros">
         <span>碳水 <b class="tnum">{{ '%.0f'|format(r.meal.carbs) }}g</b></span>
         <span>蛋白 <b class="tnum">{{ '%.0f'|format(r.meal.protein) }}g</b></span>
@@ -847,9 +853,11 @@
         (day.meal || []).filter(function (mm) {
           return Math.abs(mm[0] - minute) <= 15;
         }).forEach(function (mm) {
-          html += "<br>" + mm[1] + "　" + mm[2]
-                + '<br><span class="ev">碳水 ' + mm[3] + "g・蛋白 " + mm[4]
-                + "g・脂肪 " + mm[5] + "g</span>";
+          mm[1].forEach(function (g) {
+            html += "<br>" + g[0] + "　" + g[1];
+          });
+          html += '<br><span class="ev">碳水 ' + mm[2] + "g・蛋白 " + mm[3]
+                + "g・脂肪 " + mm[4] + "g</span>";
         });
       } else {
         var row = DATA.agp[i];
