@@ -1,0 +1,20 @@
+# Cloudflare Tunnel 設定範本 → 複製到 /etc/cloudflared/config.yml
+#
+# 把 TUNNEL_ID 換成 `cloudflared tunnel create cgm` 產生的那一組 UUID。
+# 這個檔案本身沒有祕密，祕密在 credentials-file 指向的 JSON（權限須 600）。
+
+tunnel: TUNNEL_ID
+credentials-file: /etc/cloudflared/TUNNEL_ID.json
+
+# 出站連線，家用路由器不需要開任何 port。
+ingress:
+  - hostname: cgm.whtwbrown.com
+    service: http://127.0.0.1:8090
+    originRequest:
+      # 18MB 的 CSV 上傳；預設 30 秒對慢速上行不夠
+      connectTimeout: 30s
+      # 90 天報告加 PDF 轉檔可能要一分鐘以上
+      httpHostHeader: cgm.whtwbrown.com
+
+  # 落空的請求一律 404，不要洩漏後面還有什麼服務
+  - service: http_status:404

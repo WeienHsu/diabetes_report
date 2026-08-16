@@ -2,9 +2,13 @@
 
     python -m agp_report --glucose data/glucose.csv --food data/food.csv \
                          --days 14 --out out/report.html
+
+組裝邏輯在 build_report()，CLI 只是它的一層薄包裝——web 層需要同一份邏輯，
+但不能吃掉 SystemExit，也不該被迫先把 HTML 寫到檔案再讀回來。
 """
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -72,25 +76,48 @@ def _verdict(r) -> str:
     return "　".join(parts)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(prog="agp_report", description="產生血糖回診報告")
-    ap.add_argument("--glucose", required=True, help="Libre 匯出的 CSV")
-    ap.add_argument("--food", help="Google Sheet 飲食日誌分頁匯出的 CSV（選用）")
-    ap.add_argument("--days", type=int, default=14, help="分析期間天數（預設 14，AGP 標準）")
-    ap.add_argument("--out", default="out/report.html", help="輸出 HTML 路徑")
-    args = ap.parse_args()
+class ReportError(Exception):
+    """輸入資料本身的問題。訊息寫給使用者看，可直接呈現在網頁上。"""
 
-    libre = parse_libre.parse(args.glucose)
+
+@dataclass
+class Summary:
+    """產完報告後的一句話交代，CLI 印出來、web 層存進 meta 與歷史清單。"""
+
+    start: datetime
+    end: datetime
+    days: int
+    coverage_pct: float
+    tir_pct: float
+    meals: int
+    hypo_events: int
+
+
+def build_report(glucose_path: str, food_path: str | None = None, days: int = 14,
+                 toolbar: dict[str, str] | None = None) -> tuple[str, Summary]:
+    """讀 CSV、算指標、組出單檔自包含 HTML。回傳 (html, summary)。
+
+    toolbar 只有 web 層會給（{"pdf": ..., "new": ...}），列印時一律隱藏，
+    因此同一份 HTML 既是線上頁面、也是轉 PDF 的來源。
+    """
+    libre = parse_libre.parse(glucose_path)
     if not libre.historic:
-        raise SystemExit("錯誤：CSV 內沒有歷史葡萄糖讀數（記錄類型 0）")
+        raise ReportError("這份 CSV 裡沒有歷史葡萄糖讀數（記錄類型 0）。"
+                          "請確認匯出的是 LibreView 的完整資料。")
 
-    period = metrics.slice_period(libre.historic, args.days)
-    m = metrics.compute(period, args.days)
+    period = metrics.slice_period(libre.historic, days)
+    m = metrics.compute(period, days)
 
     responses, skipped, drinks, food_start = [], 0, 0, "—"
     block_meals: list[tuple[datetime, float]] = []
-    if args.food:
-        all_meals = parse_food.parse(args.food)
+    if food_path:
+        all_meals = parse_food.parse(food_path)
+        # 這幾乎一定是匯出錯分頁。原本只是靜靜產出 0 餐，讀者要翻到第 3 頁
+        # 才會發現餐食分析整段不見了——不如當場講清楚。
+        if not all_meals:
+            raise ReportError(
+                "飲食 CSV 解析出 0 餐。試算表有「食物資料庫」與「飲食日誌」兩個分頁，"
+                "匯出時只會拿到當前所在的那一頁——請切到「飲食日誌」再匯出一次。")
         if all_meals:
             food_start = all_meals[0].when.strftime("%Y-%m-%d")
         block_meals = [(x.when, x.carbs) for x in all_meals if m.start <= x.when <= m.end]
@@ -108,7 +135,7 @@ def main() -> None:
 
     period_insulin = [(t, u) for t, u in libre.insulin if m.start <= t <= m.end]
     events = metrics.hypo_events(period, period_insulin)
-    blocks = metrics.time_blocks(period, period_insulin, block_meals, args.days)
+    blocks = metrics.time_blocks(period, period_insulin, block_meals, days)
     days_rows = metrics.daily_summary(period, period_insulin, events)
 
     env = Environment(
@@ -120,8 +147,11 @@ def main() -> None:
         patient=libre.patient,
         events=events,
         blocks=blocks,
+        # 手機版把同一批數字改依平均值排序——「哪個時段最糟」正是這頁的目的
+        blocks_ranked=sorted(blocks, key=lambda b: b.mean, reverse=True),
         worst_block=max(blocks, key=lambda b: b.mean) if blocks else None,
         band_tint=charts.BAND_TINT,
+        toolbar=toolbar,
         # 90 天會排出 91 列，把 P2 撐成三頁以上——與每日縮圖砍到 14 天同一個問題
         days_rows=days_rows[-DAILY_PROFILE_DAYS:],
         days_note=(f"僅列最近 {DAILY_PROFILE_DAYS} 天；時段統計與低血糖事件涵蓋完整 "
@@ -146,12 +176,32 @@ def main() -> None:
         generated=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
+    return html, Summary(
+        start=m.start, end=m.end, days=m.days,
+        coverage_pct=m.coverage_pct, tir_pct=m.band_pct["target"],
+        meals=len(responses), hypo_events=len(events),
+    )
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(prog="agp_report", description="產生血糖回診報告")
+    ap.add_argument("--glucose", required=True, help="Libre 匯出的 CSV")
+    ap.add_argument("--food", help="Google Sheet 飲食日誌分頁匯出的 CSV（選用）")
+    ap.add_argument("--days", type=int, default=14, help="分析期間天數（預設 14，AGP 標準）")
+    ap.add_argument("--out", default="out/report.html", help="輸出 HTML 路徑")
+    args = ap.parse_args()
+
+    try:
+        html, s = build_report(args.glucose, args.food, args.days)
+    except ReportError as exc:
+        raise SystemExit(f"錯誤：{exc}")
+
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"已產出 {out}（{len(html) // 1024} KB）")
-    print(f"  期間 {m.start:%Y-%m-%d} – {m.end:%Y-%m-%d}　涵蓋率 {m.coverage_pct:.0f}%"
-          f"　TIR {m.band_pct['target']:.1f}%　餐次 {len(responses)}")
+    print(f"  期間 {s.start:%Y-%m-%d} – {s.end:%Y-%m-%d}　涵蓋率 {s.coverage_pct:.0f}%"
+          f"　TIR {s.tir_pct:.1f}%　餐次 {s.meals}")
 
 
 if __name__ == "__main__":
