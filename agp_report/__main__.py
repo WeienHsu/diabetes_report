@@ -92,6 +92,8 @@ def _verdict(r) -> str:
              f"（Δ+{r.delta:.0f}，第 {r.peak_min} 分鐘）"]
     if r.meal.fat >= 25 and r.peak_min >= 180:
         parts.append("高脂餐，峰值落在 3 小時後——脂肪延緩胃排空的典型型態。")
+    if r.bolus_count > 1:
+        parts.append(f"注射 {r.bolus_units:.0f}U 由 {r.bolus_count} 劑加總。")
     if r.bolus_units == 0 and r.meal.carbs >= 30:
         parts.append(f"此餐含 {r.meal.carbs:.0f}g 碳水但未記錄注射。")
     elif r.prebolus_min is not None and r.prebolus_min <= 5 and r.meal.carbs >= 40:

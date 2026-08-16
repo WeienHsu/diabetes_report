@@ -30,8 +30,13 @@ class Item:
 
 @dataclass
 class Meal:
-    when: datetime
+    when: datetime                   # 第一筆進食紀錄
+    last: datetime | None = None     # 最後一筆；合併餐次才會與 when 不同
     items: list[Item] = field(default_factory=list)
+
+    @property
+    def ends(self) -> datetime:
+        return self.last or self.when
 
     @property
     def carbs(self) -> float:
@@ -111,6 +116,7 @@ def parse(path: str) -> list[Meal]:
     for when, item in sorted(entries, key=lambda e: e[0]):
         if meals and when - meals[-1].when <= CLUSTER_WINDOW:
             meals[-1].items.append(item)
+            meals[-1].last = when
         else:
-            meals.append(Meal(when=when, items=[item]))
+            meals.append(Meal(when=when, last=when, items=[item]))
     return meals

@@ -95,6 +95,42 @@ class TestMealResponse(unittest.TestCase):
         self.assertFalse(r.enough_data)
 
 
+class TestBolusWindow(unittest.TestCase):
+    """注射視窗綁在整個進食場合的跨距上。"""
+
+    START = datetime(2026, 1, 1, 20, 5)
+
+    def _analyse(self, meal, dose_offsets):
+        historic = [(self.START + timedelta(minutes=i * 15), 150.0) for i in range(-2, 17)]
+        insulin = [(self.START + timedelta(minutes=d), u) for d, u in dose_offsets]
+        return meals.analyse(meal, historic, insulin)
+
+    def _merged(self, span_min):
+        """20:05 起的進食場合，最後一筆在 span_min 分鐘後。"""
+        item = parse_food.Item(label="晚餐", brand="", name="x", serving="",
+                               carbs=40, protein=0, fat=0, kcal=200)
+        return parse_food.Meal(when=self.START,
+                               last=self.START + timedelta(minutes=span_min),
+                               items=[item, item])
+
+    def test_second_dose_of_a_merged_meal_is_counted(self):
+        # 點心在 T+25 被併入，它的針在 T+40 —— 吃的時候才打是常態。
+        # 窗尾若仍以起始時間為準，這一劑會完全消失。
+        r = self._analyse(self._merged(25), [(0, 8), (40, 4)])
+        self.assertEqual(r.bolus_units, 12)
+        self.assertEqual(r.bolus_count, 2)
+
+    def test_single_row_meal_behaves_exactly_as_before(self):
+        # 未合併時 ends == when，窗尾仍是 +30 分
+        single = self._merged(0)
+        self.assertEqual(self._analyse(single, [(0, 8), (30, 4)]).bolus_units, 12)
+        self.assertEqual(self._analyse(single, [(0, 8), (31, 4)]).bolus_units, 8)
+
+    def test_window_does_not_extend_beyond_the_last_entry(self):
+        # 跨距 25 分 → 窗尾 T+55；T+56 的針不算
+        self.assertEqual(self._analyse(self._merged(25), [(56, 4)]).bolus_units, 0)
+
+
 class TestMealClustering(unittest.TestCase):
     """同一頓飯若被拆成多餐，會共用同一劑胰島素並重複計算同一個峰值。"""
 
