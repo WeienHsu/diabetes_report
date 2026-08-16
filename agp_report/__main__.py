@@ -201,7 +201,9 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
             "day": [{"label": f"{d.day:%m-%d}",
                      "slots": [None if v is None else round(v) for v in d.slots],
                      "ins": [[m, u] for m, u in d.insulin],
-                     "meal": [[mm, x.label or "未分類", x.title,
+                     "meal": [[mm,
+                               [[lab, "＋".join(i.name for i in its)]
+                                for lab, its in x.groups],
                                round(x.carbs), round(x.protein), round(x.fat)]
                               for mm, x in d.meals]} for d in details],
             "agp": [[round(b["p5"]), round(b["p25"]), round(b["p50"]),
