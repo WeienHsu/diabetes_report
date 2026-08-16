@@ -20,7 +20,7 @@ class TestBands(unittest.TestCase):
         cases = {53.9: "very_low", 54: "low", 69.9: "low", 70: "target",
                  179.9: "target", 180: "high", 250: "very_high"}
         for value, expected in cases.items():
-            self.assertEqual(metrics._band_of(value), expected, f"{value} 應屬 {expected}")
+            self.assertEqual(metrics.band_of(value), expected, f"{value} 應屬 {expected}")
 
     def test_percentages_sum_to_100(self):
         m = metrics.compute(series([40, 60, 100, 200, 300]), days=1)
@@ -192,6 +192,52 @@ class TestTimeBlocks(unittest.TestCase):
         # 沒有讀數的時段留白，不能報 0 —— 0 會被讀成「血糖是 0」
         got = metrics.time_blocks([(datetime(2026, 1, 1, 3, 0), 90.0)], [], [], days=1)
         self.assertEqual([b.hour for b in got], [2])
+
+
+class TestDailyDetails(unittest.TestCase):
+    def test_readings_land_in_the_right_fifteen_minute_slot(self):
+        readings = [(datetime(2026, 1, 1, 0, 7), 100.0),    # 第 0 格
+                    (datetime(2026, 1, 1, 0, 15), 120.0),   # 第 1 格
+                    (datetime(2026, 1, 1, 23, 45), 140.0)]  # 第 95 格
+        d = metrics.daily_details(readings, [], [])[0]
+        self.assertEqual(d.slots[0], 100.0)
+        self.assertEqual(d.slots[1], 120.0)
+        self.assertEqual(d.slots[95], 140.0)
+        self.assertEqual(d.readings, 3)
+
+    def test_hours_without_readings_stay_none(self):
+        # 空白代表沒有讀數。填 0 會被讀成「血糖是 0」
+        d = metrics.daily_details([(datetime(2026, 1, 1, 5, 0), 90.0)], [], [])[0]
+        self.assertEqual(d.hourly[5], (90.0, 90.0))
+        self.assertIsNone(d.hourly[0])
+        self.assertIsNone(d.hourly[23])
+
+    def test_hourly_takes_max_and_min_of_the_four_slots(self):
+        readings = series([120, 90, 200, 150], start=datetime(2026, 1, 1, 8, 0))
+        d = metrics.daily_details(readings, [], [])[0]
+        self.assertEqual(d.hourly[8], (200, 90))
+
+    def test_limit_keeps_the_most_recent_days(self):
+        readings = [(datetime(2026, 1, day, 8, 0), 150.0) for day in range(1, 11)]
+        got = metrics.daily_details(readings, [], [], limit=3)
+        self.assertEqual([d.day.day for d in got], [8, 9, 10])
+
+    def test_events_from_other_days_are_not_mixed_in(self):
+        readings = [(datetime(2026, 1, d, 8, 0), 150.0) for d in (1, 2)]
+        insulin = [(datetime(2026, 1, 1, 8, 30), 10.0), (datetime(2026, 1, 2, 9, 0), 6.0)]
+        scans = [(datetime(2026, 1, 2, 10, 0), 160.0)]
+        got = metrics.daily_details(readings, insulin, scans)
+        self.assertEqual(got[0].insulin, [(510, 10.0)])
+        self.assertEqual(got[0].scans, [])
+        self.assertEqual(got[1].insulin, [(540, 6.0)])
+        self.assertEqual(got[1].scans, [600])
+
+    def test_insulin_by_hour_sums_within_the_hour(self):
+        readings = [(datetime(2026, 1, 1, 8, 0), 150.0)]
+        insulin = [(datetime(2026, 1, 1, 8, 5), 4.0), (datetime(2026, 1, 1, 8, 50), 3.0),
+                   (datetime(2026, 1, 1, 9, 10), 2.0)]
+        got = metrics.daily_details(readings, insulin, [])[0].insulin_by_hour()
+        self.assertEqual(got, {8: 7.0, 9: 2.0})
 
 
 class TestDailySummary(unittest.TestCase):

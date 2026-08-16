@@ -114,6 +114,26 @@
   .blocks tr.avg td { font-weight: 600; font-size: 11px; }
   .blocks .worst { outline: 1.5px solid var(--ink); outline-offset: -1.5px; }
 
+  /* 每日詳圖。表格第一欄寬度必須等於 charts.DETAIL_LABEL_W，
+     欄位才會與上方曲線的時間軸對齊。 */
+  .day { margin-bottom: 13px; }
+  .dhead { font-size: 11px; margin-bottom: 1px; }
+  .dhead .dmeta { float: right; font-size: 9.5px; color: var(--muted); }
+  .ht { border-collapse: collapse; width: 100%; table-layout: fixed;
+        font-size: 7.5px; font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .ht th, .ht td { text-align: center; padding: 1px 0; border-bottom: 1px solid var(--grid); }
+  .ht th.lbl { width: 78px; text-align: left; font-size: 8px; color: var(--ink2);
+               font-weight: 400; padding-left: 0; }
+  .ht thead th { color: var(--muted); font-size: 7px; border-bottom: 0; }
+  .ht tr.ins td { color: #8e2b6b; }
+  .ht td.hi250 { background: #fbe6dd; }
+  .ht td.lo70 { background: #fae3e3; font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 9px;
+            color: var(--ink2); margin-top: 4px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px;
+              vertical-align: -1px; }
+  .legend i.ring { background: #fff; border: 1px solid #2a78d6; border-radius: 50%; }
+
   .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .card { border: 1px solid var(--grid); padding: 8px 9px; background: #fff; }
   .card .when { font-size: 10px; color: var(--muted); }
@@ -409,7 +429,75 @@
   </footer>
 </div>
 
-{# ── P3 餐食 × 血糖：LibreView 做不到的部分。沒有飲食資料就整頁不輸出 ── #}
+{# ── P3 每日詳圖：每日縮圖看不出的敘事——幾點打了幾單位、之後血糖怎麼走。
+   單日區塊約 158px，A4 一頁裝 5 天，7 天自然跨成 2 頁。 #}
+{% if details %}
+<div class="page flow">
+  <header>
+    <div>
+      <h1>每日詳細記錄</h1>
+      <div class="sub">每日完整曲線、注射時刻與每小時極值</div>
+    </div>
+    <div class="sub tnum" style="text-align:right">
+      {{ details[0][0].day.strftime('%Y-%m-%d') }} – {{ details[-1][0].day.strftime('%Y-%m-%d') }}<br>
+      僅列最近 {{ detail_days }} 天
+    </div>
+  </header>
+
+  {% for d, svg in details %}
+  <section class="day">
+    <div class="dhead">
+      <b class="tnum">{{ d.day.strftime('%m-%d') }}</b>　週{{ d.weekday }}
+      <span class="dmeta tnum">讀數 {{ d.readings }}／96　注射 {{ '%.0f'|format(d.units) }}u</span>
+    </div>
+    {{ svg|safe }}
+    {% set by_hour = d.insulin_by_hour() %}
+    <table class="ht">
+      <thead><tr>
+        <th class="lbl"></th>
+        {% for h in range(24) %}<th>{{ '%02d'|format(h) if h % 2 == 0 else '' }}</th>{% endfor %}
+      </tr></thead>
+      <tbody>
+        <tr>
+          <th class="lbl">最高 mg/dL</th>
+          {% for cell in d.hourly %}
+          <td class="{{ 'hi250' if cell and cell[0] >= 250 }}">{{ '%.0f'|format(cell[0]) if cell }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <th class="lbl">最低 mg/dL</th>
+          {% for cell in d.hourly %}
+          <td class="{{ 'lo70' if cell and cell[1] < 70 }}">{{ '%.0f'|format(cell[1]) if cell }}</td>
+          {% endfor %}
+        </tr>
+        <tr class="ins">
+          <th class="lbl">速效 u</th>
+          {% for h in range(24) %}
+          <td>{% if by_hour.get(h) %}<b>{{ '%.1f'|format(by_hour[h]) }}</b>{% endif %}</td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+
+  <div class="legend">
+    <span><i style="background:#0ca30c"></i>目標 70-180</span>
+    <span><i style="background:#fab219"></i>高 181-250</span>
+    <span><i style="background:#ec835a"></i>很高 &gt;250</span>
+    <span><i style="background:#d03b3b"></i>低 &lt;70</span>
+    <span><i class="ring"></i>掃描</span>
+    <span><i style="background:#8e2b6b"></i>速效注射</span>
+  </div>
+
+  <footer>
+    曲線依血糖所屬分區上色。感測器斷線超過 30 分鐘的前後兩段<strong>不連線</strong>——
+    直接連起來會描出一條實際不存在的平緩曲線。每小時欄位空白代表該小時沒有讀數，不是 0。
+  </footer>
+</div>
+{% endif %}
+
+{# ── P4 餐食 × 血糖：LibreView 做不到的部分。沒有飲食資料就整頁不輸出 ── #}
 {% if responses %}
 <div class="page flow">
   <header>

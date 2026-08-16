@@ -34,6 +34,10 @@ NON_NUTRITIVE_CARBS, NON_NUTRITIVE_KCAL = 5.0, 25.0
 # 91 個縮圖、把第 1 頁撐成兩頁——「醫師一頁秒讀」正是這頁存在的理由。
 DAILY_PROFILE_DAYS = 14
 
+# 每日詳圖的天數。固定不隨 --days 變動——90 天會排出 90 個全寬圖表。
+# 這個值走 build_report() 參數而非直接讀常數，未來的設定頁才有東西可覆寫。
+DAILY_DETAIL_DAYS = 7
+
 
 def _hhmm(pct: float) -> str:
     total = round(pct / 100 * 24 * 60)
@@ -94,7 +98,8 @@ class Summary:
 
 
 def build_report(glucose_path: str, food_path: str | None = None, days: int = 14,
-                 toolbar: dict[str, str] | None = None) -> tuple[str, Summary]:
+                 toolbar: dict[str, str] | None = None,
+                 detail_days: int = DAILY_DETAIL_DAYS) -> tuple[str, Summary]:
     """讀 CSV、算指標、組出單檔自包含 HTML。回傳 (html, summary)。
 
     toolbar 只有 web 層會給（{"pdf": ..., "new": ...}），列印時一律隱藏，
@@ -137,6 +142,7 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
     events = metrics.hypo_events(period, period_insulin)
     blocks = metrics.time_blocks(period, period_insulin, block_meals, days)
     days_rows = metrics.daily_summary(period, period_insulin, events)
+    details = metrics.daily_details(period, period_insulin, libre.scans, detail_days)
 
     env = Environment(
         loader=FileSystemLoader(Path(__file__).parent / "templates"),
@@ -152,6 +158,8 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         worst_block=max(blocks, key=lambda b: b.mean) if blocks else None,
         band_tint=charts.BAND_TINT,
         toolbar=toolbar,
+        details=[(d, charts.daily_detail(d)) for d in details],
+        detail_days=detail_days,
         # 90 天會排出 91 列，把 P2 撐成三頁以上——與每日縮圖砍到 14 天同一個問題
         days_rows=days_rows[-DAILY_PROFILE_DAYS:],
         days_note=(f"僅列最近 {DAILY_PROFILE_DAYS} 天；時段統計與低血糖事件涵蓋完整 "
