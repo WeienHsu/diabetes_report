@@ -100,6 +100,23 @@ def _xh_attrs(kind: str, x0: float, x1: float, top: float, ph: float, index: int
             f'data-ymin="{Y_MIN}" data-ymax="{Y_MAX}"')
 
 
+def _band_runs(segments: list) -> list[tuple[str, list[tuple[float, float]]]]:
+    """把線段依分區合併成數條折線。
+
+    segments 為 (序號, x1, y1, x2, y2, 分區)。逐段各出一個元素的話，96 段裡
+    有九成是在畫「跟前一段同色」的線——某日實測 95 條 line 其實只有 13 個
+    分區段落。合併後視覺完全相同，檔案小一個數量級。
+    """
+    runs: list[list] = []
+    for index, x1, y1, x2, y2, band in segments:
+        if runs and runs[-1][0] == band and runs[-1][2] == index - 1:
+            runs[-1][1].append((x2, y2))
+            runs[-1][2] = index
+        else:
+            runs.append([band, [(x1, y1), (x2, y2)], index])
+    return [(band, points) for band, points, _ in runs]
+
+
 def _grid_and_axis(left: float, top: float, w: float, h: float,
                    x_ticks: list[tuple[float, str]]) -> str:
     """共用的血糖 y 軸格線 + 目標帶 + x 軸刻度。"""
@@ -226,9 +243,13 @@ def daily_grid(daily: list[dict], width: int = 710, cell_h: int = 58) -> str:
             f'height="{_fmt(_y(TARGET_LO, cy, cell_h) - _y(TARGET_HI, cy, cell_h))}" '
             f'fill="{BAND_COLOR["target"]}" opacity="0.10"/>')
         pts = [(cx + cell_w * m / 1440, _y(v, cy, cell_h)) for m, v in day["points"]]
-        if pts:
-            out.append(f'<path d="{_path(pts)}" fill="none" stroke="{INK}" '
-                       f'stroke-width="1" stroke-linejoin="round" opacity="0.75"/>')
+        values = [v for _m, v in day["points"]]
+        segments = [(i, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+                     band_of(values[i + 1]))
+                    for i in range(len(pts) - 1)]
+        for band, points in _band_runs(segments):
+            out.append(f'<path d="{_path(points)}" fill="none" stroke="{BAND_COLOR[band]}" '
+                       f'stroke-width="1.2" stroke-linejoin="round"/>')
     out.append('</svg>')
     return "".join(out)
 
@@ -323,14 +344,13 @@ def daily_detail(detail, width: int = 710, index: int = 0) -> str:
 
     # 逐段上色。相鄰兩格都有值才連——感測器脫落數小時後回來，直接連起來
     # 會描出一條實際不存在的平緩曲線。
-    for i in range(len(slots) - 1):
-        a, b = slots[i], slots[i + 1]
-        if a is None or b is None:
-            continue
-        out.append(
-            f'<line x1="{_fmt(x(i * 15))}" y1="{_fmt(y(a))}" '
-            f'x2="{_fmt(x((i + 1) * 15))}" y2="{_fmt(y(b))}" '
-            f'stroke="{BAND_COLOR[band_of(b)]}" stroke-width="1.7" stroke-linecap="round"/>')
+    segments = [(i, x(i * 15), y(slots[i]), x((i + 1) * 15), y(slots[i + 1]),
+                 band_of(slots[i + 1]))
+                for i in range(len(slots) - 1)
+                if slots[i] is not None and slots[i + 1] is not None]
+    for band, points in _band_runs(segments):
+        out.append(f'<path d="{_path(points)}" fill="none" stroke="{BAND_COLOR[band]}" '
+                   f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>')
 
     for minute in detail.scans:
         value = slots[min(minute // 15, len(slots) - 1)]
