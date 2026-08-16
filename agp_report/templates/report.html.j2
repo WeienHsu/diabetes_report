@@ -141,6 +141,8 @@
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
   .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 5px;
             vertical-align: -1px; }
+  /* 跨列的合計欄：左側細線把該組框起來，一眼看出 48.1% 涵蓋哪兩列 */
+  td.grp { border-left: 1px solid var(--axis); vertical-align: middle; }
 
   /* 時段表：12 欄擠在 188mm 內，每欄約 54px，字級必須壓到 9px 才排得下 */
   .blocks { border-collapse: collapse; width: 100%; font-size: 9px; table-layout: fixed; }
@@ -174,6 +176,28 @@
   .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px;
               vertical-align: -1px; }
   .legend i.ring { background: #fff; border: 1px solid #2a78d6; border-radius: 50%; }
+  .dayfilter { display: none; }
+  .day.hidden { display: none; }
+  .day.flash > .dhead { background: #fdf1d8; }
+  @media screen {
+    .dayfilter { display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+                 font-size: 11px; color: var(--ink2); }
+    .dayfilter select, .dayfilter button {
+      font: inherit; font-size: 11px; padding: 3px 7px;
+      border: 1px solid var(--axis); background: #fff; color: var(--ink); cursor: pointer;
+    }
+    a.daylink { color: var(--ink); text-decoration: underline;
+                text-underline-offset: 2px; }
+    a.daylink:hover { background: #fdf1d8; }
+  }
+  @media print {
+    /* 篩選是螢幕上的操作，紙本一律完整。跳轉連結印成底線也沒有意義 */
+    .dayfilter { display: none !important; }
+    .day.hidden { display: block !important; }
+    .day.flash > .dhead { background: transparent; }
+    a.daylink { text-decoration: none; color: inherit; }
+  }
+
   .legend i.diamond { background: #2a78d6; transform: rotate(45deg); width: 7px; height: 7px; }
 
   .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -280,24 +304,30 @@
       <table>
         <thead><tr>
           <th>分區</th><th class="n">佔比</th><th class="n drop-narrow">每日約</th>
-          <th class="n">判定值</th><th class="n">國際目標</th><th>達標</th>
+          <th class="n">合計</th><th class="n">國際目標</th><th>達標</th>
         </tr></thead>
         <tbody>
         {% for row in band_rows %}
           <tr>
-            <td><span class="swatch" style="background:{{ row.color }}"></span>{{ row.label }}</td>
+            <td>
+              <span class="swatch" style="background:{{ row.color }}"></span>{{ row.label }}
+              {%- if row.own_goal %} <span class="muted" style="font-size:9px">目標 {{ row.own_goal }}%
+                <span class="{{ 'hit' if row.own_ok else 'miss' }}">{{ '✓' if row.own_ok else '✗' }}</span></span>{% endif %}
+            </td>
             <td class="n">{{ '%.1f'|format(row.pct) }}%</td>
             <td class="n muted drop-narrow">{{ row.hhmm }}</td>
-            <td class="n">{% if row.combined is not none %}<b>{{ '%.1f'|format(row.combined) }}%</b>{% else %}<span class="muted">—</span>{% endif %}</td>
-            <td class="n muted">{{ row.goal }}%</td>
-            <td class="{{ 'hit' if row.ok else 'miss' }}">{{ '✓' if row.ok else '✗' }}</td>
+            {% if row.span %}
+            <td class="n grp" rowspan="{{ row.span }}"><b>{{ '%.1f'|format(row.combined) }}%</b></td>
+            <td class="n muted grp" rowspan="{{ row.span }}">{{ row.goal }}%</td>
+            <td class="grp {{ 'hit' if row.ok else 'miss' }}" rowspan="{{ row.span }}">{{ '✓' if row.ok else '✗' }}</td>
+            {% endif %}
           </tr>
         {% endfor %}
         </tbody>
       </table>
       <div class="sub" style="font-size:9.5px;margin-top:3px">
-        判定值為達標實際比較的累計分區——「低」比的是 &lt;70 全體、「高」比的是 &gt;180 全體。
-        其餘各列的判定值即左方佔比。
+        國際共識的門檻本身是重疊的：<b>&gt;180 全體</b> &lt;25%、其中 &gt;250 單獨 &lt;5%；
+        <b>&lt;70 全體</b> &lt;4%、其中 &lt;54 單獨 &lt;1%。右側三欄跨列，比較的是該組的合計。
       </div>
     </div>
     <div style="text-align:center">
@@ -425,7 +455,7 @@
       <tbody>
       {% for e in events %}
         <tr>
-          <td class="tnum">{{ e.start.strftime('%m-%d %H:%M') }}</td>
+          <td class="tnum">{% if e.start.date().isoformat() in detail_dates %}<a class="daylink" href="#d-{{ e.start.date().isoformat() }}">{{ e.start.strftime('%m-%d %H:%M') }}</a>{% else %}{{ e.start.strftime('%m-%d %H:%M') }}{% endif %}</td>
           <td class="n tnum">{{ e.minutes }} 分</td>
           <td class="n tnum">{{ '%.0f'|format(e.nadir) }}</td>
           <td class="n tnum">{% if e.bolus_before %}{{ '%.1f'|format(e.bolus_before) }} u{% else %}<span class="muted">—</span>{% endif %}</td>
@@ -448,7 +478,7 @@
       <tbody>
       {% for r in days_rows %}
         <tr{% if r.partial %} class="muted"{% endif %}>
-          <td class="tnum">{{ r.day.strftime('%m-%d') }}{% if r.partial %}<span title="期間頭尾，非完整一日">*</span>{% endif %}</td>
+          <td class="tnum">{% if r.day.isoformat() in detail_dates %}<a class="daylink" href="#d-{{ r.day.isoformat() }}">{{ r.day.strftime('%m-%d') }}</a>{% else %}{{ r.day.strftime('%m-%d') }}{% endif %}{% if r.partial %}<span title="期間頭尾，非完整一日">*</span>{% endif %}</td>
           <td>{{ r.weekday }}</td>
           <td class="n tnum">{{ '%.0f'|format(r.mean) }}</td>
           <td class="n tnum">{{ '%.0f'|format(r.tir_pct) }}%</td>
@@ -484,8 +514,19 @@
     </div>
   </header><span class="toggle" aria-hidden="true"></span></summary><div class="sect-body">
 
+  <div class="dayfilter">
+    <label for="daypick">只看某一天</label>
+    <select id="daypick">
+      <option value="">全部 {{ details|length }} 天</option>
+      {% for d, _svg in details %}
+      <option value="{{ d.day.isoformat() }}">{{ d.day.strftime('%m-%d') }}（週{{ d.weekday }}）</option>
+      {% endfor %}
+    </select>
+    <button type="button" id="dayclear" hidden>顯示全部</button>
+  </div>
+
   {% for d, svg in details %}
-  <section class="day">
+  <section class="day" id="d-{{ d.day.isoformat() }}" data-day="{{ d.day.isoformat() }}">
     <div class="dhead">
       <b class="tnum">{{ d.day.strftime('%m-%d') }}</b>　週{{ d.weekday }}
       <span class="dmeta tnum">TIR {{ '%.0f'|format(d.tir_pct) }}%　讀數 {{ d.readings }}／96　注射 {{ '%.0f'|format(d.units) }}u</span>
@@ -708,6 +749,49 @@
       if (d.dataset.reopen) { d.open = false; delete d.dataset.reopen; }
     });
   });
+
+  // ── 日期導覽 ──────────────────────────────────────────────────────
+  var days = document.querySelectorAll("section.day");
+  var pick = document.getElementById("daypick");
+  var clear = document.getElementById("dayclear");
+
+  function showOnly(iso) {
+    Array.prototype.forEach.call(days, function (d) {
+      d.classList.toggle("hidden", !!iso && d.dataset.day !== iso);
+    });
+    if (clear) clear.hidden = !iso;
+  }
+
+  if (pick) {
+    pick.addEventListener("change", function () { showOnly(pick.value); });
+  }
+  if (clear) {
+    clear.addEventListener("click", function () {
+      pick.value = ""; showOnly("");
+    });
+  }
+
+  // 從 P2 的日期跳到 P3。專案準則禁用 scrollIntoView（會弄壞頁面捲動），
+  // 改用 window.scrollTo 搭配 getBoundingClientRect。
+  Array.prototype.forEach.call(document.querySelectorAll("a.daylink"), function (a) {
+    a.addEventListener("click", function (ev) {
+      var target = document.getElementById(a.getAttribute("href").slice(1));
+      if (!target) return;
+      ev.preventDefault();
+      // 目標可能在折疊起來的區段裡，也可能正被篩選隱藏
+      var sect = target.closest("details.sect");
+      if (sect && !sect.open) sect.open = true;
+      if (pick && pick.value && pick.value !== target.dataset.day) {
+        pick.value = ""; showOnly("");
+      }
+      var top = target.getBoundingClientRect().top + window.pageYOffset - 12;
+      window.scrollTo({ top: top, behavior: "smooth" });
+      target.classList.add("flash");
+      setTimeout(function () { target.classList.remove("flash"); }, 1600);
+    });
+  });
+
+  window.addEventListener("beforeprint", function () { showOnly(""); });
 
   Array.prototype.forEach.call(document.querySelectorAll("svg.xh"), function (svg) {
     var kind = svg.dataset.xh;

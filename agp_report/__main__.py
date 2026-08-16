@@ -45,23 +45,41 @@ def _hhmm(pct: float) -> str:
     return f"{total // 60}h {total % 60:02d}m"
 
 
+# 累計目標橫跨哪幾列。國際共識的門檻本來就是重疊的：>180 全體 <25%、
+# >250 單獨 <5%；<70 全體 <4%、<54 單獨 <1%。一列一格的表格畫不出這件事，
+# 要用跨列合併才看得懂 48.1% 是「很高 + 高」的合計。
+BAND_GROUPS = [("high", ["very_high", "high"]),
+               ("target", ["target"]),
+               ("low", ["low", "very_low"])]
+
+
 def _band_rows(band_pct: dict[str, float]) -> list[dict]:
-    rows = []
-    for key in BAND_ORDER:
+    """回傳每列資料；每組的第一列帶著跨列的合計與達標判定。"""
+    def verdict(key: str) -> tuple[str, float, bool]:
         goal_text, members = GOALS[key]
         actual = sum(band_pct.get(k, 0.0) for k in members)
         ok = actual > 70 if key == "target" else actual < float(goal_text[1:])
-        rows.append({
-            "label": charts.BAND_LABEL[key],
-            "color": charts.BAND_COLOR[key],
-            "pct": band_pct.get(key, 0.0),
-            "hhmm": _hhmm(band_pct.get(key, 0.0)),
-            "goal": goal_text,
-            "ok": ok,
-            # 達標判定用的是累計分區（「低」比的是 <70 全體），與本列顯示的
-            # 單一分區佔比不同。不寫出來讀者會以為 1.3% 是直接跟 <4% 比。
-            "combined": actual if len(members) > 1 else None,
-        })
+        return goal_text, actual, ok
+
+    rows = []
+    for group_key, members in BAND_GROUPS:
+        goal_text, actual, ok = verdict(group_key)
+        for i, key in enumerate(members):
+            own = verdict(key) if key in ("very_high", "very_low") else None
+            rows.append({
+                "label": charts.BAND_LABEL[key],
+                "color": charts.BAND_COLOR[key],
+                "pct": band_pct.get(key, 0.0),
+                "hhmm": _hhmm(band_pct.get(key, 0.0)),
+                # 只有每組第一列帶合計，模板用 rowspan 讓它跨過整組
+                "span": len(members) if i == 0 else 0,
+                "combined": actual,
+                "goal": goal_text,
+                "ok": ok,
+                # 第 2 級分區另有自己的門檻（很高 <5%、很低 <1%）
+                "own_goal": own[0] if own else None,
+                "own_ok": own[2] if own else None,
+            })
     return rows
 
 
@@ -173,6 +191,7 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
         band_tint=charts.BAND_TINT,
         toolbar=toolbar,
         details=[(d, charts.daily_detail(d, index=i)) for i, d in enumerate(details)],
+        detail_dates={d.day.isoformat() for d in details},
         detail_days=detail_days,
         # 要求的天數超過分析期間時資料根本不存在。少給就要講，
         # 否則使用者以為自己看到的是 28 天。
