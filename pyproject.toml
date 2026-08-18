@@ -5,9 +5,12 @@ description = "把 FreeStyle Libre 血糖 CSV 與飲食紀錄合成可帶去回�
 requires-python = ">=3.10"
 dependencies = [
     "jinja2>=3.1",
+    # 手機的 Google Sheets 只匯得出 xlsx。自己拆 zip+XML 的話，日期欄是序號、
+    # 要讀 styles.xml 的 numFmt 才知道那是日期——不值得重造。純 Python，ARM64 無編譯。
+    "openpyxl>=3.1",
 ]
 
-# CLI 只需要 Jinja2。web 介面才需要這一組——18MB 的 multipart 上傳不該自己解析，
+# CLI 只需要上面兩個。web 介面才需要這一組——18MB 的 multipart 上傳不該自己解析，
 # 而 cgi 模組在 3.13 已移除、3.12 已棄用。兩者都是純 Python，ARM64 無編譯問題。
 [project.optional-dependencies]
 web = [
