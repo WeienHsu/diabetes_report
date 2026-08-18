@@ -34,12 +34,18 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 app.secret_key = secrets.token_bytes(32)
 
 
-def _save(storage, folder: Path, name: str) -> Path | None:
-    """存下上傳的檔案。沒選檔案時 filename 是空字串。"""
+def _save(storage, folder: Path, stem: str) -> Path | None:
+    """存下上傳的檔案。沒選檔案時 filename 是空字串。
+
+    副檔名照使用者的檔案帶（飲食紀錄可能是 xlsx），但只認得這兩種；
+    其餘一律不帶副檔名，免得上傳的檔名決定了磁碟上的路徑。解析格式本身
+    是看檔頭而不是副檔名，所以不帶也不影響。
+    """
     if storage is None or not storage.filename:
         return None
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / name
+    suffix = Path(storage.filename).suffix.lower()
+    path = folder / (stem + (suffix if suffix in (".csv", ".xlsx") else ""))
     storage.save(path)
     return path if path.stat().st_size else None
 
@@ -64,8 +70,8 @@ def create():
 
     report_id = secrets.token_urlsafe(16)   # 流水號會讓別次報告可被猜到
     upload_dir = UPLOADS / report_id
-    glucose = _save(request.files.get("glucose"), upload_dir, "glucose.csv")
-    food = _save(request.files.get("food"), upload_dir, "food.csv")
+    glucose = _save(request.files.get("glucose"), upload_dir, "glucose")
+    food = _save(request.files.get("food"), upload_dir, "food")
 
     if glucose is None:
         return render_template("upload.html", days_options=ALLOWED_DAYS, days=days,
