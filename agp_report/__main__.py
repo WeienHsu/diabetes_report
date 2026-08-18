@@ -140,13 +140,19 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
     block_meals: list[tuple[datetime, float]] = []
     period_meals: list = []
     if food_path:
-        all_meals = parse_food.parse(food_path)
-        # 這幾乎一定是匯出錯分頁。原本只是靜靜產出 0 餐，讀者要翻到第 3 頁
+        try:
+            all_meals = parse_food.parse(food_path)
+        except parse_food.FoodFormatError as exc:
+            raise ReportError(str(exc)) from exc
+        # CSV 的話這幾乎一定是匯出錯分頁。原本只是靜靜產出 0 餐，讀者要翻到第 3 頁
         # 才會發現餐食分析整段不見了——不如當場講清楚。
         if not all_meals:
             raise ReportError(
+                "飲食檔解析出 0 餐。「飲食日誌」分頁裡沒有可辨識的紀錄列。"
+                if parse_food.is_xlsx(food_path) else
                 "飲食 CSV 解析出 0 餐。試算表有「食物資料庫」與「飲食日誌」兩個分頁，"
-                "匯出時只會拿到當前所在的那一頁——請切到「飲食日誌」再匯出一次。")
+                "匯出 CSV 時只會拿到當前所在的那一頁——請切到「飲食日誌」再匯出一次，"
+                "或改用手機的「另存為 xlsx」（整本都在，不必挑分頁）。")
         if all_meals:
             food_start = all_meals[0].when.strftime("%Y-%m-%d")
         block_meals = [(x.when, x.carbs) for x in all_meals if m.start <= x.when <= m.end]
@@ -249,7 +255,7 @@ def build_report(glucose_path: str, food_path: str | None = None, days: int = 14
 def main() -> None:
     ap = argparse.ArgumentParser(prog="agp_report", description="產生血糖回診報告")
     ap.add_argument("--glucose", required=True, help="Libre 匯出的 CSV")
-    ap.add_argument("--food", help="Google Sheet 飲食日誌分頁匯出的 CSV（選用）")
+    ap.add_argument("--food", help="Google Sheet 飲食日誌的匯出檔，CSV 或 xlsx（選用）")
     ap.add_argument("--days", type=int, default=14, help="分析期間天數（預設 14，AGP 標準）")
     ap.add_argument("--out", default="out/report.html", help="輸出 HTML 路徑")
     args = ap.parse_args()

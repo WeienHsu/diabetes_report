@@ -194,6 +194,79 @@ class TestMealClustering(unittest.TestCase):
         self.assertEqual(parse_food.parse(path)[0].label, "午餐")
 
 
+class TestFoodXlsx(unittest.TestCase):
+    """手機的 Google Sheets 只匯得出整本 xlsx，兩個分頁都在裡面。"""
+
+    HEADER = ["日期時間", "餐別", "品牌", "產品名稱", "攝取份量",
+              "熱量 (kcal)", "蛋白質 (g)", "脂肪 (g)", "碳水化合物 (g)", "備註"]
+
+    def _write(self, sheets):
+        import tempfile
+
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        wb.remove(wb.active)
+        for title, rows in sheets:
+            ws = wb.create_sheet(title)
+            for row in rows:
+                ws.append(row)
+        fh = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        fh.close()
+        wb.save(fh.name)
+        return fh.name
+
+    def _log(self, rows):
+        return ("飲食日誌", [self.HEADER] + rows)
+
+    def test_reads_real_datetime_and_numeric_cells(self):
+        # Sheets 存的是真正的日期與數值，openpyxl 給的是 datetime 與 float，
+        # 不是字串——照字串處理的話營養素會整批變成 0
+        path = self._write([self._log([
+            [datetime(2026, 1, 1, 12, 0), "午餐", "A", "主菜", "1份", 300, 20, 10, 40.5, ""],
+            [datetime(2026, 1, 1, 12, 5), "午餐", "B", "白飯", "200g", 280, 5, 1, 62, ""],
+        ])])
+        got = parse_food.parse(path)
+        self.assertEqual(len(got), 1)
+        self.assertAlmostEqual(got[0].carbs, 102.5)
+        self.assertAlmostEqual(got[0].kcal, 580)
+        self.assertEqual(got[0].title, "主菜＋白飯")
+
+    def test_picks_the_food_log_sheet_not_the_database(self):
+        # CSV 匯錯分頁會解析出 0 餐；xlsx 兩頁都在，必須自己挑對的那一頁
+        path = self._write([
+            ("食物資料庫", [["品牌", "產品名稱", "熱量 (kcal)"], ["A", "主菜", 300]]),
+            self._log([["2026-01-01 12:00", "午餐", "A", "主菜", "1份",
+                        300, 20, 10, 40, ""]]),
+        ])
+        self.assertEqual(len(parse_food.parse(path)), 1)
+
+    def test_renamed_sheet_still_found_by_its_columns(self):
+        path = self._write([
+            ("食物資料庫", [["品牌", "產品名稱"], ["A", "主菜"]]),
+            ("我的紀錄", [self.HEADER,
+                         ["2026-01-01 12:00", "午餐", "A", "主菜", "1份",
+                          300, 20, 10, 40, ""]]),
+        ])
+        self.assertEqual(len(parse_food.parse(path)), 1)
+
+    def test_workbook_without_a_log_sheet_is_reported(self):
+        path = self._write([("食物資料庫", [["品牌", "產品名稱"], ["A", "主菜"]])])
+        with self.assertRaises(parse_food.FoodFormatError):
+            parse_food.parse(path)
+
+    def test_csv_named_xlsx_still_parses(self):
+        # 認檔頭不認副檔名：手機分享出來的檔名不保證對
+        import tempfile
+
+        fh = tempfile.NamedTemporaryFile("w", suffix=".xlsx", delete=False,
+                                         encoding="utf-8", newline="")
+        fh.write(",".join(self.HEADER) + "\n")
+        fh.write("2026-01-01 12:00,午餐,A,主菜,1份,300,20,10,40,\n")
+        fh.close()
+        self.assertEqual(len(parse_food.parse(fh.name)), 1)
+
+
 class TestHypoEvents(unittest.TestCase):
     def test_fourteen_minutes_is_not_an_event(self):
         # 兩筆間隔 15 分鐘才構成 15 分鐘，單筆低讀數跨度是 0
